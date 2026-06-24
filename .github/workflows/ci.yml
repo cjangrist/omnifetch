@@ -48,7 +48,7 @@ jobs:
       - name: Install dependencies
         run: uv sync --all-extras
       # Single source of truth: the same hooks run by the pre-commit hook
-      # (ruff format, ruff lint, pylint w/ Google pylintrc, mypy).
+      # (ruff format, ruff lint, mypy).
       - name: Enforce style & types (pre-commit)
         run: uv run pre-commit run --all-files --show-diff-on-failure
 

@@ -1,34 +1,41 @@
 """FastMCP server assembly.
 
-Builds a configured ``FastMCP`` instance — strict input validation on, internal
-error details masked — and registers the toolset. Importing this module imports
-FastMCP, so ``omnifetch.telemetry.configure_telemetry`` must run before this
-module is imported (see ``omnifetch.__main__``).
+Builds a configured ``FastMCP`` instance with strict input validation and
+masked error details, then registers the toolset.
 """
 
 from __future__ import annotations
 
+from importlib.metadata import version
+
 from fastmcp import FastMCP
 
-from omnifetch.config import ServerSettings
 from omnifetch.logging import get_logger
 from omnifetch.tools import register_tools
 
 _LOGGER = get_logger("server")
 
+_NAME = "omnifetch"
+_VERSION = version("omnifetch")
+_INSTRUCTIONS = (
+    "Omnifetch MCP server. Exposes strictly-typed, JSON-Schema-enforced tools."
+)
 
-def build_server(settings: ServerSettings) -> FastMCP:
-    """Construct and return a fully-registered FastMCP server."""
-    _LOGGER.info(
-        "Building server %r (version %s).", settings.name, settings.version
-    )
+
+def build_server() -> FastMCP:
+    """Construct and return a fully-registered FastMCP server.
+
+    Strict input validation and error-detail masking are always on — they are
+    core guarantees of the server, not runtime-tunable settings.
+    """
+    _LOGGER.info("Building server %r (version %s).", _NAME, _VERSION)
     server: FastMCP = FastMCP(
-        name=settings.name,
-        version=settings.version,
-        instructions=settings.instructions,
-        strict_input_validation=settings.strict_input_validation,
-        mask_error_details=settings.mask_error_details,
+        name=_NAME,
+        version=_VERSION,
+        instructions=_INSTRUCTIONS,
+        strict_input_validation=True,
+        mask_error_details=True,
     )
     register_tools(server)
-    _LOGGER.info("Server %r ready.", settings.name)
+    _LOGGER.info("Server %r ready.", _NAME)
     return server

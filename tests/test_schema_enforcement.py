@@ -59,3 +59,13 @@ async def test_oversized_name_rejected(
         "say_hello", {"name": "x" * 101}, raise_on_error=False
     )
     assert result.is_error is True
+
+
+async def test_every_tool_enforces_input_and_output_schema(
+    mcp_client: Client[FastMCPTransport],
+) -> None:
+    tools = await mcp_client.list_tools()
+    assert tools, "no tools registered"
+    for tool in tools:
+        assert tool.inputSchema.get("additionalProperties") is False, tool.name
+        assert tool.outputSchema is not None, tool.name

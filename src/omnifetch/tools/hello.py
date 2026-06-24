@@ -1,10 +1,4 @@
-"""The ``say_hello`` tool: a strictly-typed, schema-enforced greeting.
-
-Defines the pure, directly-testable tool function and a ``register_hello_tool``
-helper that wires it onto a server. Keeping registration separate from the
-function body means the function can be unit-tested without any server,
-while the server controls naming, metadata, and behavioral hints.
-"""
+"""The ``say_hello`` tool: a strictly-typed, schema-enforced greeting."""
 
 from __future__ import annotations
 
@@ -12,6 +6,7 @@ import logging
 
 from fastmcp import Context, FastMCP
 from logdecorator.asyncio import async_log_on_end, async_log_on_start
+from mcp.types import ToolAnnotations
 
 from omnifetch.logging import get_logger
 from omnifetch.schemas import GreetableName, HelloResponse
@@ -24,11 +19,9 @@ _TOOL_DESCRIPTION = (
     "Return a friendly greeting for the given name as a structured JSON "
     "object. Defaults to greeting 'World'."
 )
-_TOOL_ANNOTATIONS: dict[str, bool] = {
-    "readOnlyHint": True,
-    "idempotentHint": True,
-    "openWorldHint": False,
-}
+_TOOL_ANNOTATIONS = ToolAnnotations(
+    readOnlyHint=True, idempotentHint=True, openWorldHint=False
+)
 
 
 @async_log_on_start(
@@ -52,7 +45,6 @@ async def say_hello(
 
 def register_hello_tool(server: FastMCP) -> None:
     """Register the ``say_hello`` tool on the given FastMCP server."""
-    _LOGGER.debug("Registering tool %r.", _TOOL_NAME)
     server.tool(
         name=_TOOL_NAME,
         title=_TOOL_TITLE,
