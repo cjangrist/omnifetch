@@ -1,0 +1,60 @@
+# Pre-commit hooks enforcing the Google Python Style Guide, project quality
+# gates, and commit conventions, using the exact tool versions pinned in uv.lock
+# (the single source of truth shared with CI, .github/workflows/ci.yml).
+#
+# Activate once:  uv run pre-commit install
+# Run manually :  uv run pre-commit run --all-files
+default_install_hook_types: [pre-commit, commit-msg, pre-push]
+fail_fast: false
+
+repos:
+  - repo: local
+    hooks:
+      - id: ruff-format
+        name: ruff format (Google 80-column)
+        entry: uv run ruff format
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages: [pre-commit]
+
+      - id: ruff-check
+        name: ruff lint (Google docstrings + import order)
+        entry: uv run ruff check --fix
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages: [pre-commit]
+
+      - id: pylint
+        name: pylint (Google pylintrc)
+        entry: uv run pylint src tests
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages: [pre-commit]
+
+      - id: mypy
+        name: mypy (strict)
+        entry: uv run mypy
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages: [pre-commit]
+
+      # Enforce gitmoji + Conventional Commits on the commit message itself.
+      - id: conventional-commit-msg
+        name: conventional commit message (gitmoji + type)
+        entry: python3 .github/scripts/check_conventional_title.py
+        language: system
+        stages: [commit-msg]
+
+  # Local secret-blocking at `git push` time (server-side GitHub push protection
+  # is the remote backstop). Runs only at the pre-push stage, so the shared
+  # `pre-commit run` used by CI never builds it.
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.30.1
+    hooks:
+      - id: gitleaks
+        name: gitleaks (block committed secrets)
+        stages: [pre-push]
