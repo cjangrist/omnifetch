@@ -2,14 +2,13 @@
 
 from __future__ import annotations
 
-from fastmcp import Client
+from fastmcp import Client, FastMCP
 from fastmcp.client.transports import FastMCPTransport
 
 
-async def test_input_schema_constraints(
-    mcp_client: Client[FastMCPTransport],
-) -> None:
-    schema = (await mcp_client.list_tools())[0].inputSchema
+async def test_input_schema_constraints(mcp_server: FastMCP) -> None:
+    async with Client(FastMCPTransport(mcp_server)) as client:
+        schema = (await client.list_tools())[0].inputSchema
     assert schema["additionalProperties"] is False
     name = schema["properties"]["name"]
     assert name["type"] == "string"
@@ -18,53 +17,51 @@ async def test_input_schema_constraints(
     assert "ctx" not in schema["properties"]
 
 
-async def test_output_schema_present(
-    mcp_client: Client[FastMCPTransport],
-) -> None:
-    schema = (await mcp_client.list_tools())[0].outputSchema
+async def test_output_schema_present(mcp_server: FastMCP) -> None:
+    async with Client(FastMCPTransport(mcp_server)) as client:
+        schema = (await client.list_tools())[0].outputSchema
     assert schema is not None
     assert schema["properties"]["message"]["type"] == "string"
     assert schema["required"] == ["message"]
 
 
-async def test_structured_output_matches_schema(
-    mcp_client: Client[FastMCPTransport],
-) -> None:
-    result = await mcp_client.call_tool("say_hello", {"name": "Ada"})
+async def test_structured_output_matches_schema(mcp_server: FastMCP) -> None:
+    async with Client(FastMCPTransport(mcp_server)) as client:
+        result = await client.call_tool("say_hello", {"name": "Ada"})
     assert result.data.message == "Hello, Ada!"
 
 
-async def test_extra_argument_rejected(
-    mcp_client: Client[FastMCPTransport],
-) -> None:
-    result = await mcp_client.call_tool(
-        "say_hello", {"name": "Ada", "unexpected": True}, raise_on_error=False
-    )
+async def test_extra_argument_rejected(mcp_server: FastMCP) -> None:
+    async with Client(FastMCPTransport(mcp_server)) as client:
+        result = await client.call_tool(
+            "say_hello",
+            {"name": "Ada", "unexpected": True},
+            raise_on_error=False,
+        )
     assert result.is_error is True
 
 
-async def test_empty_name_rejected(
-    mcp_client: Client[FastMCPTransport],
-) -> None:
-    result = await mcp_client.call_tool(
-        "say_hello", {"name": ""}, raise_on_error=False
-    )
+async def test_empty_name_rejected(mcp_server: FastMCP) -> None:
+    async with Client(FastMCPTransport(mcp_server)) as client:
+        result = await client.call_tool(
+            "say_hello", {"name": ""}, raise_on_error=False
+        )
     assert result.is_error is True
 
 
-async def test_oversized_name_rejected(
-    mcp_client: Client[FastMCPTransport],
-) -> None:
-    result = await mcp_client.call_tool(
-        "say_hello", {"name": "x" * 101}, raise_on_error=False
-    )
+async def test_oversized_name_rejected(mcp_server: FastMCP) -> None:
+    async with Client(FastMCPTransport(mcp_server)) as client:
+        result = await client.call_tool(
+            "say_hello", {"name": "x" * 101}, raise_on_error=False
+        )
     assert result.is_error is True
 
 
 async def test_every_tool_enforces_input_and_output_schema(
-    mcp_client: Client[FastMCPTransport],
+    mcp_server: FastMCP,
 ) -> None:
-    tools = await mcp_client.list_tools()
+    async with Client(FastMCPTransport(mcp_server)) as client:
+        tools = await client.list_tools()
     assert tools, "no tools registered"
     for tool in tools:
         assert tool.inputSchema.get("additionalProperties") is False, tool.name

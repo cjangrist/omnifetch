@@ -1,20 +1,20 @@
 """Shared pytest fixtures and hermetic environment isolation.
 
-Provides the in-memory FastMCP client recommended by the FastMCP testing guide
-(https://gofastmcp.com/servers/testing) — the server instance is passed directly
-to ``Client`` with no subprocess or network. An autouse fixture also strips
-ambient ``OMNIFETCH_``/``OTEL_`` variables so settings are deterministic.
+Each test builds its own in-memory ``Client`` against the ``mcp_server``
+fixture inside the test's event loop, per the FastMCP testing guide
+(https://gofastmcp.com/servers/testing), so the client's task group never
+spans separate fixture/test event loops. An autouse fixture also clears
+ambient ``OMNIFETCH_``/``OTEL_`` variables so settings stay deterministic.
 """
 
 from __future__ import annotations
 
 import logging
 import os
-from collections.abc import AsyncIterator, Iterator
+from collections.abc import Iterator
 
 import pytest
-from fastmcp import Client, FastMCP
-from fastmcp.client.transports import FastMCPTransport
+from fastmcp import FastMCP
 
 from omnifetch.server import build_server
 
@@ -47,12 +47,3 @@ def restore_package_logger() -> Iterator[None]:
 def mcp_server() -> FastMCP:
     """A freshly built FastMCP server instance."""
     return build_server()
-
-
-@pytest.fixture
-async def mcp_client(
-    mcp_server: FastMCP,
-) -> AsyncIterator[Client[FastMCPTransport]]:
-    """In-memory FastMCP client connected directly to the server instance."""
-    async with Client(FastMCPTransport(mcp_server)) as client:
-        yield client
