@@ -1,13 +1,7 @@
-"""OpenTelemetry tracing bootstrap (stub — disabled by default).
+"""Opt-in OpenTelemetry tracing (a no-op by default).
 
-FastMCP emits spans through the OpenTelemetry *API*, which is a no-op until an
-SDK ``TracerProvider`` is installed. This module installs one — but only when
-tracing is explicitly enabled via the standard ``OTEL_TRACES_EXPORTER``
-variable. It imports nothing from FastMCP, so it can (and must) run before
-FastMCP is first imported, satisfying OpenTelemetry's "configure the SDK
-before instrumentation" contract. The heavy SDK imports are optional (the
-``telemetry`` extra) and are performed lazily so the core server runs
-without them.
+Installs an SDK ``TracerProvider`` only when ``OTEL_TRACES_EXPORTER`` selects an
+exporter; the SDK imports are lazy (the optional ``telemetry`` extra).
 """
 
 from __future__ import annotations
@@ -48,7 +42,7 @@ def configure_telemetry(settings: TelemetrySettings) -> bool:
     no-op (disabled by configuration, or the optional ``telemetry`` extra is not
     installed).
     """
-    exporter_name = settings.otel_traces_exporter.lower()
+    exporter_name = settings.otel_traces_exporter
     if settings.otel_sdk_disabled or exporter_name in _DISABLED_EXPORTERS:
         _LOGGER.info(
             "Telemetry disabled (OTEL_TRACES_EXPORTER=%r); tracing is a no-op.",

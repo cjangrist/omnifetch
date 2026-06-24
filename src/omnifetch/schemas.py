@@ -26,7 +26,7 @@ GreetableName = Annotated[
 class HelloResponse(BaseModel):
     """Structured greeting returned by the ``say_hello`` tool."""
 
-    model_config = ConfigDict(extra="forbid", frozen=True)
+    model_config = ConfigDict(extra="forbid")
 
     message: Annotated[
         str,

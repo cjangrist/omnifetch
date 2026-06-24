@@ -16,7 +16,6 @@ import pytest
 from fastmcp import Client, FastMCP
 from fastmcp.client.transports import FastMCPTransport
 
-from omnifetch.config import AppConfig, load_config
 from omnifetch.server import build_server
 
 
@@ -45,15 +44,9 @@ def restore_package_logger() -> Iterator[None]:
 
 
 @pytest.fixture
-def app_config() -> AppConfig:
-    """Default test configuration (stdio transport, telemetry disabled)."""
-    return load_config()
-
-
-@pytest.fixture
-def mcp_server(app_config: AppConfig) -> FastMCP:
+def mcp_server() -> FastMCP:
     """A freshly built FastMCP server instance."""
-    return build_server(app_config.server)
+    return build_server()
 
 
 @pytest.fixture

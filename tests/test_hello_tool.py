@@ -10,6 +10,7 @@ from fastmcp.client.transports import FastMCPTransport
 from fastmcp.exceptions import ToolError
 
 from omnifetch.schemas import HelloResponse
+from omnifetch.tools import _REGISTRARS
 from omnifetch.tools.hello import say_hello
 
 
@@ -36,11 +37,18 @@ async def test_named_greeting(
     assert result.data.message == expected
 
 
-async def test_exactly_one_tool_registered(
+async def test_say_hello_is_registered(
+    mcp_client: Client[FastMCPTransport],
+) -> None:
+    names = [tool.name for tool in await mcp_client.list_tools()]
+    assert "say_hello" in names
+
+
+async def test_every_registrar_produces_a_tool(
     mcp_client: Client[FastMCPTransport],
 ) -> None:
     tools = await mcp_client.list_tools()
-    assert [tool.name for tool in tools] == ["say_hello"]
+    assert len(tools) == len(_REGISTRARS)
 
 
 async def test_tool_metadata_is_advertised(

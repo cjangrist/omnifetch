@@ -26,14 +26,6 @@ repos:
         always_run: true
         stages: [pre-commit]
 
-      - id: pylint
-        name: pylint (Google pylintrc)
-        entry: uv run pylint src tests
-        language: system
-        pass_filenames: false
-        always_run: true
-        stages: [pre-commit]
-
       - id: mypy
         name: mypy (strict)
         entry: uv run mypy

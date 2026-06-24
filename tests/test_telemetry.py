@@ -6,6 +6,7 @@ import sys
 import types
 
 import pytest
+from opentelemetry import trace
 
 from omnifetch.config import TelemetrySettings
 from omnifetch.telemetry import _build_otlp_exporter, configure_telemetry
@@ -37,19 +38,31 @@ def test_build_otlp_exporter_returns_exporter(protocol: str) -> None:
     assert exporter.__class__.__name__ == "OTLPSpanExporter"
 
 
-def test_console_exporter_enables_tracing() -> None:
-    assert (
-        configure_telemetry(TelemetrySettings(otel_traces_exporter="console"))
-        is True
+def test_console_exporter_installs_a_provider(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, object] = {}
+    monkeypatch.setattr(
+        trace, "set_tracer_provider", lambda p: captured.update(provider=p)
     )
+    settings = TelemetrySettings(otel_traces_exporter="console")
+    assert configure_telemetry(settings) is True
+    assert captured.get("provider") is not None
 
 
-def test_otlp_exporter_enables_tracing() -> None:
+def test_otlp_exporter_installs_a_provider(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, object] = {}
+    monkeypatch.setattr(
+        trace, "set_tracer_provider", lambda p: captured.update(provider=p)
+    )
     settings = TelemetrySettings(
         otel_traces_exporter="otlp",
         otel_exporter_otlp_endpoint="http://localhost:4318",
     )
     assert configure_telemetry(settings) is True
+    assert captured.get("provider") is not None
 
 
 def test_missing_sdk_returns_false(monkeypatch: pytest.MonkeyPatch) -> None:

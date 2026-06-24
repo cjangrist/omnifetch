@@ -1,9 +1,7 @@
-"""Colorized, structured logging.
+"""Colorized logging to stderr via Rich.
 
-All records are emitted to stderr via a Rich handler, leaving stdout reserved
-exclusively for the MCP stdio JSON-RPC transport (writing logs to stdout would
-corrupt that channel). Exposes ``configure_logging`` for the entry point and
-``get_logger`` for namespaced child loggers used throughout the package.
+stdout is reserved for the MCP JSON-RPC transport, so all logs go to stderr.
+Call ``configure_logging`` once at startup; use ``get_logger`` for children.
 """
 
 from __future__ import annotations

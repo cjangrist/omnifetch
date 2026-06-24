@@ -1,14 +1,8 @@
 """Typed, immutable application configuration.
 
-Loads server and OpenTelemetry settings from the environment into validated,
-frozen settings objects. The entry point first populates the environment
-from any ``.env`` file via ``python-dotenv`` (see ``omnifetch.__main__``),
-so this module reads only ``os.environ`` and never touches the filesystem.
-Server settings carry the ``OMNIFETCH_`` prefix; telemetry settings use the
-standard ``OTEL_`` names so the server speaks OpenTelemetry's native
-configuration vocabulary. Configuration is loaded once at the entry point
-via ``load_config`` and passed explicitly thereafter, never read from
-globals inside business logic.
+Server settings use the ``OMNIFETCH_`` prefix; telemetry uses the standard
+``OTEL_`` names. ``load_config`` reads ``os.environ`` once and returns a frozen
+``AppConfig`` that is passed explicitly through the app.
 """
 
 from __future__ import annotations
@@ -18,8 +12,6 @@ from typing import Any, Literal
 
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
-
-from omnifetch import __version__
 
 TransportName = Literal["stdio", "http", "sse"]
 OtelExporterName = Literal["", "none", "console", "otlp"]
@@ -35,18 +27,10 @@ class ServerSettings(BaseSettings):
         frozen=True,
     )
 
-    name: str = "omnifetch"
-    version: str = __version__
-    instructions: str = (
-        "Omnifetch MCP server. "
-        "Exposes strictly-typed, JSON-Schema-enforced tools."
-    )
     transport: TransportName = "stdio"
     host: str = "127.0.0.1"
     port: int = Field(default=8000, ge=1, le=65535)
     log_level: str = "INFO"
-    strict_input_validation: bool = True
-    mask_error_details: bool = True
 
 
 class TelemetrySettings(BaseSettings):
@@ -70,19 +54,19 @@ class TelemetrySettings(BaseSettings):
 
 @dataclass(frozen=True, slots=True)
 class AppConfig:
-    """Aggregate, immutable configuration passed explicitly through the app."""
+    """Frozen aggregate of all settings, passed explicitly through the app."""
 
     server: ServerSettings
     telemetry: TelemetrySettings
 
 
 def load_config(**server_overrides: Any) -> AppConfig:
-    """Load and validate configuration from the environment.
+    """Read configuration from the environment into a frozen ``AppConfig``.
 
     ``server_overrides`` (e.g. parsed CLI flags) take precedence over the
-    environment for server settings. Telemetry always comes from the
-    environment.
+    environment for server settings.
     """
-    server = ServerSettings(**server_overrides)
-    telemetry = TelemetrySettings()
-    return AppConfig(server=server, telemetry=telemetry)
+    return AppConfig(
+        server=ServerSettings(**server_overrides),
+        telemetry=TelemetrySettings(),
+    )

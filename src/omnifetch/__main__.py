@@ -1,12 +1,7 @@
 """Command-line entry point for the Omnifetch MCP server.
 
-Loads any ``.env`` file via python-dotenv, parses CLI overrides, builds typed
-configuration, configures colorized logging and (optionally) telemetry, then
-builds and runs the FastMCP server. Critically, telemetry is configured *before*
-the server module is imported, so the OpenTelemetry SDK is installed before
-FastMCP initializes its tracer.
-
-Run with:  python -m omnifetch  (or the installed ``omnifetch`` console script).
+Bootstrap order: dotenv → config → logging → telemetry → serve. Run with
+``python -m omnifetch`` or the installed ``omnifetch`` console script.
 """
 
 from __future__ import annotations
@@ -80,7 +75,7 @@ def run_server(config: AppConfig) -> None:
     """Build and run the FastMCP server for the given configuration."""
     from omnifetch.server import build_server
 
-    server = build_server(config.server)
+    server = build_server()
     transport = config.server.transport
     _LOGGER.info("Starting server on transport %r.", transport)
     if transport == "stdio":

@@ -1,9 +1,7 @@
 """Omnifetch — a production-grade FastMCP server.
 
-Public package surface. Deliberately import-light: it does NOT import FastMCP at
-module load so that the OpenTelemetry SDK can be installed (see
-``omnifetch.telemetry``) before FastMCP is first imported. ``build_server`` is
-therefore exposed lazily via module ``__getattr__``.
+Public surface. Import-light: ``build_server`` is exposed lazily via
+``__getattr__`` so ``import omnifetch`` doesn't pull in FastMCP.
 """
 
 from __future__ import annotations
@@ -19,7 +17,7 @@ if TYPE_CHECKING:
 
 
 def __getattr__(name: str) -> Any:
-    """Lazily expose ``build_server`` without importing FastMCP."""
+    """Expose ``build_server`` lazily, without importing FastMCP at load."""
     if name == "build_server":
         from omnifetch.server import build_server
 

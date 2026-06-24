@@ -9,8 +9,7 @@ suspected vulnerabilities. We aim to acknowledge reports within 3 business days.
 
 ## Supply-chain hardening
 
-Dependency and build integrity are first-class concerns in this project. The controls below
-are enforced in CI on every push and pull request.
+The controls below are enforced in CI on every push and pull request.
 
 ### Dependencies
 
@@ -48,8 +47,6 @@ are enforced in CI on every push and pull request.
 ### Code analysis
 
 - **SAST.** CodeQL analyzes the code for security issues on every push and PR.
-- **Strict gates.** `mypy --strict`, `ruff`, and `pylint` (Google style) run as a local
-  pre-commit hook and in CI.
 - **OpenSSF Scorecard.** The project's supply-chain posture is continuously scored and
   published; the score badge is in the README.
 
