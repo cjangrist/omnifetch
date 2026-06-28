@@ -2,8 +2,8 @@
 
 > Surfaces the engine as a FastMCP tool. Source: `server/tools.ts:254-350`
 > (`register_fetch_tool` + I/O schema + the tool description), with DI + lifespan
-> adapted to a long-lived Python process. Optional: REST `POST /fetch`
-> (`server/rest_fetch.ts`).
+> adapted to a long-lived Python process. Plus a lightweight, **toggleable** REST
+> `POST /fetch` (#5, `server/rest_fetch.ts`) — required, second-order to the tool.
 
 ---
 
@@ -74,10 +74,10 @@ from fastmcp import Context, FastMCP
 from fastmcp.exceptions import ToolError
 from logdecorator.asyncio import async_log_on_end, async_log_on_start
 from mcp.types import ToolAnnotations
-from omnifetch.fetch.engine import Engine
-from omnifetch.fetch.orchestrator import run_fetch_race
-from omnifetch.fetch.skip import parse_skip_providers, validate_skip_providers
-from omnifetch.fetch.types import ProviderError
+from omnifetch.fetch.engine.runtime import Engine
+from omnifetch.fetch.engine.orchestrator import run_fetch_race
+from omnifetch.fetch.engine.skip import parse_skip_providers, validate_skip_providers
+from omnifetch.fetch.shared.types import ProviderError
 from omnifetch.logging import get_logger
 from omnifetch.schemas import FetchResponse, FetchUrl, SkipProviders
 
@@ -135,7 +135,7 @@ The hello registrar takes only `server`; the fetch registrar needs the `engine`.
 Refactor `_REGISTRARS` to receive a shared deps object (explicit DI, RULE_09 #8).
 
 ```python
-from omnifetch.fetch.engine import Engine
+from omnifetch.fetch.engine.runtime import Engine
 
 _REGISTRARS = (
     lambda server, engine: register_hello_tool(server),   # ignores engine
@@ -152,7 +152,7 @@ def register_tools(server: FastMCP, engine: Engine) -> None:
 
 ---
 
-## 11.4 `fetch/engine.py` + `server.py` lifespan (httpx client lifecycle)
+## 11.4 `fetch/engine/runtime.py` + `server.py` lifespan (httpx client lifecycle)
 
 The shared `httpx.AsyncClient` must be created on startup and closed on shutdown.
 Create the client in `build_server`, **inject it explicitly** into the registry
@@ -160,7 +160,7 @@ Create the client in `build_server`, **inject it explicitly** into the registry
 shutdown — no module-level setter.
 
 ```python
-# fetch/engine.py
+# fetch/engine/runtime.py
 @dataclass(frozen=True, slots=True)
 class Engine:
     unified: UnifiedFetchProvider     # holds the injected client (#6)
@@ -172,9 +172,9 @@ class Engine:
 # server.py (extend build_server)
 import contextlib, httpx
 from omnifetch.config import load_config
-from omnifetch.fetch.cache import FetchCache, build_cache_store
-from omnifetch.fetch.engine import Engine
-from omnifetch.fetch.registry import UnifiedFetchProvider
+from omnifetch.fetch.engine.cache import FetchCache, build_cache_store
+from omnifetch.fetch.engine.runtime import Engine
+from omnifetch.fetch.providers.registry import UnifiedFetchProvider
 
 def build_server() -> FastMCP:
     config = load_config()
@@ -212,20 +212,52 @@ def build_server() -> FastMCP:
   loop (fine — it binds lazily) and closed inside the lifespan; the in-memory test
   `Client` runs the lifespan in the same task tree, so the close is exercised.
 - `config = load_config()` reads provider secrets once (frozen). `__main__.main()`
-  already calls `load_dotenv()` before `build_server` indirectly — keep that order.
+  already calls `load_dotenv()` before `build_server` indirectly — keep that order,
+  and add `install_uvloop(config.server)` (doc 14 §14.1) **before** `run_server()` so
+  the chosen event loop is set process-wide before FastMCP creates it (#1).
 
 ---
 
-## 11.5 Optional: REST `POST /fetch` (`rest_fetch.ts`)
-FastMCP can mount custom HTTP routes (when `--transport http`). If REST parity is
-wanted, add a `@server.custom_route("/fetch", methods=["POST"])` handler that
-mirrors `rest_fetch.ts`: body `{url, provider?, skip_cache?, skip_providers?}`,
-validate (url required, ≤2000, valid URL; reject `provider`+`skip_providers`
-combo, `:88-93`), call `run_fetch_race`, map errors to status codes
-(`RATE_LIMIT→429, NOT_FOUND→404, INVALID_INPUT→400, else 502`, `:153-156`).
-**Security is second-order** — port the optional bearer-auth (`authenticate_rest_
-request`) later; for now it can be unauthenticated or behind the deployment's
-gateway. Mark this as a **stretch goal**; the MCP tool is the primary surface.
+## 11.5 Lightweight REST `POST /fetch` — required, second-order, toggleable (#5)
+A thin REST surface over the **same** engine — **implemented, not optional** — for
+non-MCP clients (curl, Open WebUI, a browser, the compose smoke check, doc 15). It
+is deliberately **second-order**: a convenience that mirrors the MCP tool and can be
+turned off with one env var. Mounted as a FastMCP custom route, active only on the
+HTTP/SSE transports:
+
+```python
+# server.py — mounted when REST is enabled (no-op on stdio)
+if config.server.rest_fetch:
+    @server.custom_route("/fetch", methods=["POST"])
+    async def rest_fetch(request: Request) -> JSONResponse:
+        body = await request.json()
+        url = (body or {}).get("url")
+        if not isinstance(url, str) or not url.strip():
+            return JSONResponse({"error": "url is required"}, status_code=400)
+        skip = parse_skip_providers(body.get("skip_providers"))
+        try:
+            race = await run_fetch_race(engine.unified, url, cache=engine.cache,
+                                        skip_providers=skip)
+        except ProviderError as exc:
+            return JSONResponse({"error": str(exc)}, status_code=_status_for(exc))
+        return JSONResponse(_to_response(race, skip).model_dump())
+```
+
+Behavior mirrors `rest_fetch.ts`: body `{url, provider?, skip_cache?,
+skip_providers?}`; validate (url required, ≤2000, valid URL; reject
+`provider`+`skip_providers` combo, `:88-93`); call `run_fetch_race`; map errors to
+status (`RATE_LIMIT→429, NOT_FOUND→404, INVALID_INPUT→400, else 502`, `:153-156`).
+Reuses `_to_response` from §11.2 — **zero engine duplication**, the REST path is a
+~25-line adapter.
+
+- **Toggle**: `rest_fetch: bool = True` on `ServerSettings` (`OMNIFETCH_REST_FETCH`,
+  default **on**). Set it `false` to drop the route entirely — one env var, no
+  rebuild. On stdio transport the route is simply never reached.
+- **Security is second-order** (project-wide): unauthenticated by default; gate it at
+  your ingress, or add the optional `hmac.compare_digest` bearer check (`01` §01.3)
+  later. Do **not** block the feature on auth — it's a convenience surface.
+- **Cloud-agnostic tie-in**: this is exactly the surface docker-compose exposes (doc
+  15) and the simplest smoke test — `curl -s localhost:8000/fetch -d '{"url":"…"}'`.
 
 ---
 
@@ -245,9 +277,14 @@ gateway. Mark this as a **stretch goal**; the MCP tool is the primary surface.
 8. **Client lifecycle + DI (#6)**: the shared client is injected into the registry
    at construction and `aclose()`d on lifespan exit (assert it's usable inside a
    tool call and closed after); assert there is **no** module-level client setter.
-9. `mypy --strict` + ruff clean; tool fn ≤45 lines (push mapping into `_to_response`).
+9. **REST `/fetch` (#5)**: with `--transport http` + `OMNIFETCH_REST_FETCH=true`,
+   `POST /fetch {"url": ...}` returns the same flattened `FetchResponse` JSON as the
+   MCP tool (reusing `_to_response`); `OMNIFETCH_REST_FETCH=false` → route absent
+   (404); error mapping matches `rest_fetch.ts` (429/404/400/502).
+10. `mypy --strict` + ruff clean; tool fn ≤45 lines (push mapping into `_to_response`).
 
 ## 11.7 Interfaces
-**Exposes:** `register_fetch_tool`, `FetchResponse`/`FetchInput` schemas, `Engine`,
-extended `build_server`/`register_tools`. **Consumes:** `fetch/orchestrator`,
-`fetch/registry`, `fetch/skip`, `fetch/cache`, `fetch/http`, `fastmcp`.
+**Exposes:** `register_fetch_tool`, the toggleable `/fetch` REST route (#5),
+`FetchResponse`/`FetchInput` schemas, `Engine`, extended `build_server`/
+`register_tools`. **Consumes:** `fetch/engine` (orchestrator, runtime, cache, skip),
+`fetch/providers` (registry), `fetch/shared` (http, types), `fastmcp`.

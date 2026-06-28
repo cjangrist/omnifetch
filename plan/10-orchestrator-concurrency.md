@@ -10,7 +10,7 @@
 
 ---
 
-## 10.1 `fetch/waterfall.py` — config as uppercase constants
+## 10.1 `fetch/engine/waterfall.py` — config as uppercase constants
 
 Port `CONFIG` (`fetch_orchestrator.ts:104-153`) — **code is authoritative** over
 `config.yaml` (overview §0.6).
@@ -74,7 +74,7 @@ def matches_breaker(url: str, breaker: Breaker) -> bool:
 
 ---
 
-## 10.2 `fetch/skip.py` — skip-providers parsing + validation
+## 10.2 `fetch/engine/skip.py` — skip-providers parsing + validation
 
 Port `parse_skip_providers` (`:402-449`) and `validate_skip_providers`
 (`:456-465`). The LLM sends skip lists in many shapes; accept them all.
@@ -100,7 +100,7 @@ against the active provider names; unknowns are surfaced so callers can 400/erro
 
 ---
 
-## 10.3 `fetch/concurrency.py` — the race executors (the hard part)
+## 10.3 `fetch/engine/concurrency.py` — the race executors (the hard part)
 
 A small mutable `RaceContext` threads the accumulators (mirrors the TS
 `StepContext` + the race-level `attempted`/`failed`).
@@ -240,7 +240,7 @@ async def run_sequential(ctx, providers, target_count) -> list[tuple[str, FetchR
 
 ---
 
-## 10.4 `fetch/orchestrator.py` — `run_fetch_race`
+## 10.4 `fetch/engine/orchestrator.py` — `run_fetch_race`
 
 The public entry. Decompose the TS mega-function into focused helpers.
 

@@ -1,4 +1,4 @@
-# 02 — Async HTTP client (`fetch/http.py`)
+# 02 — Async HTTP client (`fetch/shared/http.py`)
 
 > The single most performance-sensitive shared tool. Every provider's network I/O
 > flows through `http_json` / `http_text`. Get the **shared, pooled, bounded**
@@ -72,6 +72,8 @@ import re
 from typing import Any
 from urllib.parse import urlsplit
 import httpx
+from tenacity import (AsyncRetrying, retry_if_exception, stop_after_attempt,
+                      wait_exponential_jitter)
 from omnifetch.fetch.types import ErrorType, ProviderError
 from omnifetch.fetch.util import handle_rate_limit
 from omnifetch.logging import get_logger
@@ -121,32 +123,35 @@ def _host_semaphore(url: str) -> asyncio.Semaphore:
         _host_locks[host] = sem
     return sem
 
-# (#4) Optional bounded retry of TRANSIENT failures only. Default 0 = strict TS
-# parity (the WATERFALL is the failover mechanism; this is not a substitute). A
-# value >0 retries ONLY ProviderError(PROVIDER_ERROR) — i.e. 5xx + network blips —
-# never RATE_LIMIT / API_ERROR / INVALID_INPUT / NOT_FOUND, so it can't subvert the
-# orchestrator's failover/fast-fail routing. Keep the total inside the provider
-# deadline (see note + doc 14 §14.3).
+# (#4/#7) Optional bounded retry of TRANSIENT failures only, via tenacity. Default
+# 0 = strict TS parity (the WATERFALL is the failover mechanism; this is not a
+# substitute). A value >0 retries ONLY ProviderError(PROVIDER_ERROR) — 5xx + network
+# blips — never RATE_LIMIT / API_ERROR / INVALID_INPUT / NOT_FOUND, so it can't
+# subvert the orchestrator's failover/fast-fail routing. Keep the total inside the
+# provider deadline (note below + doc 14 §14.3).
 _TRANSIENT_RETRIES = 0                      # OMNIFETCH_HTTP_TRANSIENT_RETRIES
-_RETRY_BACKOFF_S = 0.25
+
+def _is_transient(exc: BaseException) -> bool:
+    """tenacity predicate: retry only transient provider errors (5xx/network)."""
+    return (isinstance(exc, ProviderError)
+            and exc.error_type is ErrorType.PROVIDER_ERROR)
 ```
 
 ### Core function
 ```python
 async def _request(client: httpx.AsyncClient, provider: str, url: str,
                    **kw: Any) -> tuple[str, int]:
-    """Host-capped, optionally single-retried wrapper around one attempt."""
-    attempt = 0
-    while True:
-        try:
+    """Host-capped + (optionally) transient-retried wrapper around one attempt."""
+    async for attempt in AsyncRetrying(
+        retry=retry_if_exception(_is_transient),       # only transient PROVIDER_ERROR
+        stop=stop_after_attempt(1 + _TRANSIENT_RETRIES),  # =1 → no retry (default)
+        wait=wait_exponential_jitter(initial=0.25, max=2.0),
+        reraise=True,                                  # surface the real error, not RetryError
+    ):
+        with attempt:
             async with _host_semaphore(url):
                 return await _do_request(client, provider, url, **kw)
-        except ProviderError as exc:
-            transient = exc.error_type is ErrorType.PROVIDER_ERROR
-            if not transient or attempt >= _TRANSIENT_RETRIES:
-                raise
-            attempt += 1
-            await asyncio.sleep(_RETRY_BACKOFF_S * attempt)
+    raise AssertionError("unreachable")  # pragma: no cover — AsyncRetrying returns/raises
 
 
 async def _do_request(client: httpx.AsyncClient, provider: str, url: str, *,
@@ -290,15 +295,17 @@ Use `respx` (httpx mock) or a local `pytest-httpserver`.
 `observability` (optional hook), `httpx`.
 
 ## 02.7 Dependency to add
-`httpx` (with `http2` extra → `httpx[http2]`) in `pyproject.toml` `dependencies`.
-`respx` in the `dev` group. Pin exact versions per the project's pinning policy;
-regenerate `uv.lock`.
+`httpx` (with `http2` extra → `httpx[http2]`) and **`tenacity`** (the bounded
+transient retry, #7) in `pyproject.toml` `dependencies`. `respx` in the `dev` group.
+Pin exact versions per the project's pinning policy; regenerate `uv.lock`.
 
-The per-host cap (#1) and bounded retry (#4) are hand-rolled with stdlib `asyncio`
-— **no `tenacity` or other retry dependency**. (Gemini's plan put `tenacity`
-auto-retries on 429/5xx *inside* the client, which fights the waterfall's failover
-model; the design here retries **only** transient `PROVIDER_ERROR`, is **off by
-default**, and adds no dependency.)
+The per-host cap (#1) is hand-rolled with stdlib `asyncio`. The bounded retry
+(#4/#7) uses **`tenacity`** (`AsyncRetrying`) — but **correctly**, unlike Gemini's
+"retry every 429/5xx inside the client" (which fights failover): the `retry_if_exception`
+predicate fires **only** on transient `PROVIDER_ERROR`, attempts are bounded by
+`OMNIFETCH_HTTP_TRANSIENT_RETRIES`, backoff is jittered, and it is **off by
+default**. `RATE_LIMIT`/`API_ERROR`/`INVALID_INPUT`/`NOT_FOUND` are never retried,
+so the waterfall remains the failover mechanism.
 
 ## 02.8 No-raw-HTTP-client rule (#5 — enforced invariant)
 **Every** network call in the engine goes through `http_json` / `http_text` /

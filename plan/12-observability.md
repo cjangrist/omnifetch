@@ -1,10 +1,18 @@
-# 12 — Observability (`fetch/observability.py`)
+# 12 — Observability (`fetch/shared/observability.py`)
 
 > Re-targets two Cloudflare-specific layers to OpenTelemetry (already scaffolded in
 > `omnifetch/telemetry.py`): the R2 forensic trace (`common/r2_trace.ts`, 294) →
 > **OTEL spans**, and the Analytics-Engine scalars (`common/metrics.ts`, 151) →
 > **OTEL metrics + a structured summary log**. Everything is a **no-op when
 > telemetry is disabled** (the default), matching `telemetry.py`'s contract.
+>
+> **Tracing library choice (#6): OpenTelemetry, deliberately.** OTEL is the
+> vendor-neutral standard — one instrumentation surface that exports to *any* OTLP
+> backend (Jaeger, Tempo, Honeycomb, Datadog, Grafana Cloud, …), so it fits the
+> cloud-agnostic posture (overview §0.1) with **no lock-in**. It is already a
+> first-class, opt-in dependency (`opentelemetry-sdk` + OTLP exporter, the
+> `telemetry` extra in `pyproject.toml`); this plan adds **no** other tracing lib,
+> and there is zero overhead when it is off (the default).
 
 ---
 

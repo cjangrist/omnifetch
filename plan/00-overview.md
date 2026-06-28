@@ -23,7 +23,7 @@ The fetch capability is surfaced two ways in the source:
 | Surface | Source | Port? |
 |---|---|---|
 | MCP `fetch` tool | `omnisearch/src/server/tools.ts:254-350` (`register_fetch_tool`) | **Yes** |
-| REST `POST /fetch` | `omnisearch/src/server/rest_fetch.ts` (whole file) | Optional (see `11-mcp-tool-server.md`) |
+| REST `POST /fetch` | `omnisearch/src/server/rest_fetch.ts` (whole file) | **Yes** — lightweight, second-order to the MCP tool, and easily toggled off (`11` §11.5) |
 
 Both call the single engine entry point `run_fetch_race`
 (`omnisearch/src/server/fetch_orchestrator.ts:469-727`).
@@ -31,6 +31,16 @@ Both call the single engine entry point `run_fetch_race`
 `omnifetch` is a **FastMCP** (Python 3.11+, `uv`-managed) server. It currently
 ships only a scaffold + a `say_hello` demo tool. This plan adds a real `fetch`
 tool backed by a faithful, idiomatic-async re-implementation of the engine.
+
+**Deployment posture — cloud-agnostic & vendor-neutral.** Where `omnisearch` is
+welded to Cloudflare (Workers isolates, KV, R2, Analytics Engine, Durable
+Objects), `omnifetch` is a plain long-lived Python process with **zero
+cloud-provider dependency**: stdio **or** streamable-HTTP MCP transport, an
+in-process (or Redis/Disk) cache via `py-key-value`, and OpenTelemetry → any OTLP
+backend for traces/metrics. It runs identically on a laptop, a bare VM, any
+container runtime, or any cloud, and ships a Docker + docker-compose setup (doc
+15). Every Cloudflare→Python re-targeting in this plan is chosen to **avoid
+vendor lock-in** — call this out when a decision could accidentally reintroduce it.
 
 ---
 
@@ -122,54 +132,77 @@ New code lives in a `fetch/` engine package + one new tool module. Existing
 scaffold files are **extended, not replaced** (RULE_12: prefer editing).
 
 ```
-src/omnifetch/
-  __main__.py            (exists) — add fetch httpx-client lifespan wiring note
-  config.py              (exists) — EXTEND: add ProviderConfig surface (04)
-  logging.py             (exists) — reuse as-is
-  telemetry.py           (exists) — EXTEND: tracer/meter accessors (12)
-  schemas.py             (exists) — EXTEND: FetchInput / FetchResponse (11)
-  server.py              (exists) — EXTEND: httpx AsyncClient lifespan (02, 11)
-  tools/
-    __init__.py          (exists) — EXTEND: append register_fetch_tool
-    hello.py             (exists)
-    fetch.py             (NEW)  — MCP `fetch` tool (11)
-  fetch/                 (NEW PACKAGE — the engine)
-    __init__.py
-    types.py             — FetchResult, ErrorType, ProviderError        (01)
-    html.py              — extract_html_title / extract_markdown_title   (01)
-    util.py              — hash_key, validate_api_key, b64 auth, timeouts(01)
-    config.py            — PROVIDER table: keys/base_urls/timeouts       (04)
-    http.py              — async HTTP: http_json/http_text/http_raw       (02)
-    failure.py           — is_fetch_failure + detect_grounded_junk       (05)
-    cache.py             — FetchCache over py-key-value (MemoryStore def.)(06)
-    waterfall.py         — WATERFALL / BREAKERS / FAILURE constants      (10)
-    concurrency.py       — run_solo / run_parallel / run_sequential      (10)
-    skip.py              — parse_skip_providers / validate_skip_providers(10)
-    orchestrator.py      — run_fetch_race (the entry point)              (10)
-    observability.py     — trace spans + fetch metrics (OTEL)            (12)
-    registry.py          — provider registry + dispatcher + availability (07)
-    providers/
-      __init__.py
-      base.py            — FetchProvider ABC + shared mixins             (07)
-      tavily.py firecrawl.py jina.py linkup.py spider.py brightdata.py
-      scrapedo.py scrapfly.py scrapingbee.py scraperapi.py scrapingant.py
-      scrapeless.py scrapegraphai.py olostep.py leadmagic.py you.py
-      decodo.py oxylabs.py                                              (07)
-      zyte.py diffbot.py opengraph.py scrappey.py                       (08)
-      supadata.py serpapi.py sociavault.py kimi.py                      (09)
-      kimi_proxy.py      — scrapfly POST proxy + identity headers        (09)
-      github/            — multi-module subpackage                       (09b)
-        __init__.py url_parser.py api.py graphql.py handlers.py
-        handlers_file.py formatters.py markdown_builder.py
-        repo_overview.py constants.py types.py
-tests/                   — mirror layout under tests/fetch/...           (13)
+omnifetch/                       repo root
+  Dockerfile                     (NEW) — multi-stage uv build              (15)
+  docker-compose.yml             (NEW) — stdio/http service + optional redis(15)
+  .dockerignore                  (NEW)                                     (15)
+  pyproject.toml                 (exists) — EXTEND deps: httpx, py-key-value-aio,
+                                            tenacity, uvloop
+  src/omnifetch/
+    __main__.py    (exists) — EXTEND: install uvloop, then serve          (11,14)
+    config.py      (exists) — EXTEND: provider + cache/http/uvloop/rest settings (04,06,14)
+    logging.py     (exists) — EXTEND: RequestIdFilter                      (12)
+    telemetry.py   (exists) — EXTEND: tracer/meter accessors              (12)
+    schemas.py     (exists) — EXTEND: FetchInput / FetchResponse          (11)
+    server.py      (exists) — EXTEND: client+engine+lifespan, REST route  (11)
+    tools/
+      __init__.py  (exists) — EXTEND: register_fetch_tool
+      hello.py     (exists)
+      fetch.py     (NEW) — MCP `fetch` tool                               (11)
+    fetch/                  NEW engine package — THREE sub-packages; only
+      __init__.py           providers/ is file-heavy (shared/ + engine/ stay small)
+      shared/               shared tools (leaf — no engine/provider deps)
+        __init__.py
+        types.py     — FetchResult, FetchRaceResult, ErrorType, ProviderError (01,06)
+        html.py      — extract_html_title / extract_markdown_title        (01)
+        util.py      — hash_key, validate_api_key, b64 auth, timeouts     (01)
+        config.py    — PROVIDER table + cache/http/uvloop/rest settings   (04,06)
+        http.py      — async HTTP: http_json/http_text/http_raw           (02)
+        observability.py — OTEL spans + metrics + request_id              (12)
+      engine/               orchestration core
+        __init__.py
+        failure.py   — is_fetch_failure + detect_grounded_junk           (05)
+        cache.py     — FetchCache over py-key-value (MemoryStore default) (06)
+        waterfall.py — WATERFALL / BREAKERS / FAILURE constants          (10)
+        skip.py      — parse_skip_providers / validate_skip_providers     (10)
+        concurrency.py — run_solo / run_parallel / run_sequential        (10)
+        orchestrator.py — run_fetch_race (the entry point)               (10)
+        runtime.py   — Engine (unified + cache + client) container        (11)
+      providers/            ←— THE one chunky package (~33 files)
+        __init__.py
+        base.py      — FetchProvider ABC                                  (07)
+        registry.py  — UnifiedFetchProvider dispatcher + availability     (07)
+        _youtube.py  — shared video-id extraction                         (09)
+        kimi_proxy.py — scrapfly POST proxy + identity headers            (09)
+        tavily.py firecrawl.py jina.py linkup.py spider.py brightdata.py
+        scrapedo.py scrapfly.py scrapingbee.py scraperapi.py scrapingant.py
+        scrapeless.py scrapegraphai.py olostep.py leadmagic.py you.py
+        decodo.py oxylabs.py cloudflare_browser.py                       (07)
+        zyte.py diffbot.py opengraph.py scrappey.py                      (08)
+        supadata.py serpapi.py sociavault.py kimi.py                     (09)
+        github/      — multi-module subpackage                           (09b)
+          __init__.py url_parser.py api.py graphql.py handlers.py
+          handlers_file.py formatters.py markdown_builder.py
+          repo_overview.py constants.py types.py
+  tests/             — mirror under tests/fetch/{shared,engine,providers}/ (13)
 ```
 
-Rationale: leaf modules (`types`, `html`, `util`, `config`, `failure`) have **no
-intra-engine dependencies** and can be built first/in parallel. `http` depends
-only on `types`+`util`. Providers depend on `http`+`util`+`html`+`config`+`base`.
-The orchestrator integrates `registry`+`failure`+`cache`+`concurrency`+`waterfall`.
-Each file stays well under the 500-line split threshold.
+**Reference resolution.** Docs use the short form `fetch/<x>`; resolve it via the
+tree above — `shared/` = {types, html, util, config, http, observability};
+`engine/` = {failure, cache, waterfall, skip, concurrency, orchestrator, runtime};
+`providers/` = {base, registry, the 28 providers, `_youtube`, `kimi_proxy`,
+`github/`}. Most code sketches import via the short path
+`from omnifetch.fetch.X import …` for readability; the real module follows the tree
+(`omnifetch.fetch.<shared|engine|providers>.X`). The tree is authoritative for file
+locations — treat sketch import lines as illustrative; doc 11 (the concrete wiring)
+shows the fully-qualified imports.
+
+Rationale: only **`providers/`** is file-heavy (28 providers + base + registry +
+the github subpackage); `shared/` (6 files) and `engine/` (7) stay small and flat,
+so the top of `fetch/` reads as three clear layers rather than a flat dump. Leaf
+modules in `shared/` have **no** intra-engine deps → build first/in parallel;
+`engine/` depends on `shared/` + `providers/registry`; `providers/` depend on
+`shared/`. Every file stays well under the 500-line split threshold.
 
 ---
 
@@ -193,15 +226,16 @@ Each file stays well under the 500-line split threshold.
 | `ctx.waitUntil(p)` | `asyncio.create_task` tracked in a background set, or just `await` | no edge eviction in a long-lived process |
 | `zod` schema | `pydantic` model / `Annotated` types | `11` |
 | `JSON.parse`/`stringify` | `json.loads` / `model_dump_json` | |
-| `p-retry` | hand-rolled async retry (stdlib `asyncio`) | optional bounded transient retry in `http.py`, default **OFF**; the waterfall is the primary failover (`02`/`14`) |
+| `p-retry` | **`tenacity`** (`AsyncRetrying`, transient-only predicate) | optional bounded transient retry in `http.py`, default **OFF**; retries only `PROVIDER_ERROR`; the waterfall is the primary failover (`02`/`14`) |
 
 **Note on retry**: no fetch provider actually calls `retry_with_backoff` — they
 call `http_json`/`http_text` directly and the *orchestrator* provides failover.
 So a per-provider retry helper is **optional** (port it for completeness in `01`).
 Separately, `http.py` gains an **optional, config-gated, single** transient-error
-retry (`02` §02.2 / `14` §14.3), **OFF by default** (`OMNIFETCH_HTTP_TRANSIENT_RETRIES=0`)
-— it retries only transient `PROVIDER_ERROR` (5xx/network) and never subverts the
-waterfall's failover/fast-fail routing.
+retry (`02` §02.2 / `14` §14.3) implemented with **`tenacity`** (`AsyncRetrying` +
+a `retry_if_exception` predicate), **OFF by default**
+(`OMNIFETCH_HTTP_TRANSIENT_RETRIES=0`) — it retries only transient `PROVIDER_ERROR`
+(5xx/network) and never subverts the waterfall's failover/fast-fail routing.
 
 ---
 
@@ -280,7 +314,8 @@ criteria. Arrows = hard dependency (consumer needs producer's interface).
 
 **Recommended sequencing:** 01 → (02, 04, 05 in parallel) → 07 base/registry →
 providers (07/08/09 in parallel) → (06, 12) → 10 → 11 → 13. Read **14** before
-starting 02 and 10.
+starting 02 and 10. Doc **15** (Docker/compose packaging) is independent — do it
+any time after 11 (it just containerizes the finished server + REST surface).
 
 ---
 
