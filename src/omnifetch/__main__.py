@@ -75,7 +75,7 @@ def run_server(config: AppConfig) -> None:
     """Build and run the FastMCP server for the given configuration."""
     from omnifetch.server import build_server
 
-    server = build_server()
+    server = build_server(config)
     transport = config.server.transport
     _LOGGER.info("Starting server on transport %r.", transport)
     if transport == "stdio":

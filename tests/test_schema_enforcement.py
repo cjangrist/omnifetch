@@ -2,13 +2,21 @@
 
 from __future__ import annotations
 
+from typing import cast
+
 from fastmcp import Client, FastMCP
 from fastmcp.client.transports import FastMCPTransport
+from mcp.types import Tool
+
+
+async def _tool_by_name(mcp_server: FastMCP, name: str) -> Tool:
+    async with Client(FastMCPTransport(mcp_server)) as client:
+        tools = cast(list[Tool], await client.list_tools())
+    return next(tool for tool in tools if tool.name == name)
 
 
 async def test_input_schema_constraints(mcp_server: FastMCP) -> None:
-    async with Client(FastMCPTransport(mcp_server)) as client:
-        schema = (await client.list_tools())[0].inputSchema
+    schema = (await _tool_by_name(mcp_server, "say_hello")).inputSchema
     assert schema["additionalProperties"] is False
     name = schema["properties"]["name"]
     assert name["type"] == "string"
@@ -18,8 +26,7 @@ async def test_input_schema_constraints(mcp_server: FastMCP) -> None:
 
 
 async def test_output_schema_present(mcp_server: FastMCP) -> None:
-    async with Client(FastMCPTransport(mcp_server)) as client:
-        schema = (await client.list_tools())[0].outputSchema
+    schema = (await _tool_by_name(mcp_server, "say_hello")).outputSchema
     assert schema is not None
     assert schema["properties"]["message"]["type"] == "string"
     assert schema["required"] == ["message"]
