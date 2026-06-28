@@ -6,6 +6,7 @@ from omnifetch.fetch.shared.html import (
     extract_html_title,
     extract_markdown_title,
 )
+from omnifetch.fetch.shared.http import http_json, http_raw, http_text
 from omnifetch.fetch.shared.types import ErrorType, FetchResult, ProviderError
 from omnifetch.fetch.shared.util import (
     basic_auth,
@@ -31,6 +32,9 @@ __all__ = [
     "handle_provider_error",
     "handle_rate_limit",
     "hash_key",
+    "http_json",
+    "http_raw",
+    "http_text",
     "provider_timeout",
     "retry_with_backoff",
     "sanitize_for_log",
