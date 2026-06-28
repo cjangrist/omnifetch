@@ -6,6 +6,13 @@ from omnifetch.fetch.engine.failure import (
     detect_grounded_junk,
     is_fetch_failure,
 )
+from omnifetch.fetch.engine.race import (
+    AlternativeFetchResult,
+    FetchDispatcher,
+    FetchRaceResult,
+    ProviderAttemptFailure,
+    run_fetch_race,
+)
 from omnifetch.fetch.engine.skip import (
     parse_skip_providers,
     validate_skip_providers,
@@ -21,11 +28,16 @@ from omnifetch.fetch.engine.waterfall import (
 __all__ = [
     "BREAKERS",
     "WATERFALL_STEPS",
+    "AlternativeFetchResult",
     "Breaker",
+    "FetchDispatcher",
+    "FetchRaceResult",
+    "ProviderAttemptFailure",
     "Step",
     "detect_grounded_junk",
     "is_fetch_failure",
     "matches_breaker",
     "parse_skip_providers",
+    "run_fetch_race",
     "validate_skip_providers",
 ]
