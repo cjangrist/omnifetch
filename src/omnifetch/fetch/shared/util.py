@@ -13,7 +13,7 @@ import hashlib
 import hmac
 import re
 from collections.abc import AsyncIterator, Awaitable, Callable
-from typing import TypeVar
+from typing import NoReturn, TypeVar
 
 from tenacity import (
     AsyncRetrying,
@@ -84,7 +84,7 @@ def handle_rate_limit(provider: str, reset_time: str | None = None) -> None:
 
 def handle_provider_error(
     error: Exception, provider: str, operation: str = "operation"
-) -> None:
+) -> NoReturn:
     """Re-raise provider errors and wrap other exceptions as ``API_ERROR``."""
     if isinstance(error, ProviderError):
         raise error
