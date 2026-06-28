@@ -13,9 +13,13 @@ from typing import Any, Literal
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from omnifetch.fetch.shared.config import ProviderSecrets
+
 TransportName = Literal["stdio", "http", "sse"]
 OtelExporterName = Literal["", "none", "console", "otlp"]
 OtelProtocolName = Literal["grpc", "http/protobuf"]
+CacheBackendName = Literal["memory", "redis", "disk"]
+UvloopModeName = Literal["auto", "off", "on"]
 
 
 class ServerSettings(BaseSettings):
@@ -31,6 +35,13 @@ class ServerSettings(BaseSettings):
     host: str = "127.0.0.1"
     port: int = Field(default=8000, ge=1, le=65535)
     log_level: str = "INFO"
+    cache_backend: CacheBackendName = "memory"
+    redis_url: str = ""
+    disk_cache_path: str = ".cache/omnifetch"
+    http_limit_per_host: int = Field(default=20, ge=1)
+    http_transient_retries: int = Field(default=0, ge=0)
+    uvloop: UvloopModeName = "auto"
+    rest_fetch: bool = True
 
 
 class TelemetrySettings(BaseSettings):
@@ -58,6 +69,7 @@ class AppConfig:
 
     server: ServerSettings
     telemetry: TelemetrySettings
+    providers: ProviderSecrets
 
 
 def load_config(**server_overrides: Any) -> AppConfig:
@@ -69,4 +81,5 @@ def load_config(**server_overrides: Any) -> AppConfig:
     return AppConfig(
         server=ServerSettings(**server_overrides),
         telemetry=TelemetrySettings(),
+        providers=ProviderSecrets(),
     )

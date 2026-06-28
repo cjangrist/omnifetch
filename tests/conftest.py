@@ -16,14 +16,18 @@ from collections.abc import Iterator
 import pytest
 from fastmcp import FastMCP
 
+from omnifetch.fetch.shared.config import PROVIDER_ENV_NAMES
 from omnifetch.server import build_server
 
 
 @pytest.fixture(autouse=True)
 def isolated_env(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
-    """Remove ambient OMNIFETCH_/OTEL_ variables for deterministic settings."""
+    """Remove ambient runtime/provider variables for deterministic settings."""
     for name in list(os.environ):
-        if name.startswith(("OMNIFETCH_", "OTEL_")):
+        if (
+            name.startswith(("OMNIFETCH_", "OTEL_"))
+            or name in PROVIDER_ENV_NAMES
+        ):
             monkeypatch.delenv(name, raising=False)
     yield
 
