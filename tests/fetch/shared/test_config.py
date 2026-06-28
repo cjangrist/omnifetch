@@ -2,70 +2,92 @@
 
 from __future__ import annotations
 
+from dataclasses import FrozenInstanceError
+from typing import Any, cast
+
 import pytest
 from pydantic import ValidationError
 
-from omnifetch.config import load_config, ServerSettings
-from omnifetch.fetch.shared.config import (
-    PROVIDER_ENV_NAMES,
-    ProviderSecrets,
-)
+from omnifetch.config import load_config, ServerSettings, TelemetrySettings
+from omnifetch.fetch.shared.config import HttpSettings, ProviderSecrets
 
 
-def test_provider_env_names_match_settings_aliases() -> None:
+def test_server_settings_have_explicit_environment_aliases() -> None:
     aliases = {
         str(field.validation_alias)
-        for field in ProviderSecrets.model_fields.values()
+        for field in ServerSettings.model_fields.values()
     }
-    assert set(PROVIDER_ENV_NAMES) == aliases
-    assert len(PROVIDER_ENV_NAMES) == 32
+    assert aliases == {
+        "OMNIFETCH_TRANSPORT",
+        "OMNIFETCH_HOST",
+        "OMNIFETCH_PORT",
+        "OMNIFETCH_LOG_LEVEL",
+        "OMNIFETCH_CACHE_BACKEND",
+        "OMNIFETCH_REDIS_URL",
+        "OMNIFETCH_DISK_CACHE_PATH",
+        "OMNIFETCH_HTTP_LIMIT_PER_HOST",
+        "OMNIFETCH_HTTP_TRANSIENT_RETRIES",
+        "OMNIFETCH_UVLOOP",
+        "OMNIFETCH_REST_FETCH",
+    }
 
 
-def test_provider_secrets_default_to_unconfigured() -> None:
-    secrets = ProviderSecrets()
-    assert secrets.tavily_api_key is None
-    assert secrets.oxylabs_username is None
-    assert secrets.oxylabs_password is None
-    assert secrets.bright_data_zone == "unblocker"
+def test_telemetry_settings_have_explicit_environment_aliases() -> None:
+    aliases = {
+        str(field.validation_alias)
+        for field in TelemetrySettings.model_fields.values()
+    }
+    assert aliases == {
+        "OTEL_SDK_DISABLED",
+        "OTEL_SERVICE_NAME",
+        "OTEL_TRACES_EXPORTER",
+        "OTEL_EXPORTER_OTLP_ENDPOINT",
+        "OTEL_EXPORTER_OTLP_PROTOCOL",
+    }
 
 
-def test_provider_secrets_read_native_environment_names(
+def test_provider_secrets_are_generic_exact_name_lookup() -> None:
+    secrets = ProviderSecrets(
+        {
+            "TAVILY_API_KEY": "tavily-secret",
+            "BRIGHT_DATA_ZONE": "custom-zone",
+            "EMPTY_SECRET": "",
+        }
+    )
+
+    assert secrets.get("TAVILY_API_KEY") == "tavily-secret"
+    assert secrets.get("BRIGHT_DATA_ZONE", "unblocker") == "custom-zone"
+    assert secrets.get("MISSING_API_KEY") is None
+    assert secrets.get("MISSING_ZONE", "unblocker") == "unblocker"
+    assert "EMPTY_SECRET" not in secrets.values
+    assert secrets.require_all("TAVILY_API_KEY", "BRIGHT_DATA_ZONE") is True
+    assert secrets.require_all("TAVILY_API_KEY", "MISSING_API_KEY") is False
+
+
+def test_provider_secrets_can_snapshot_environment(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setenv("TAVILY_API_KEY", "tavily-secret")
-    monkeypatch.setenv("OXYLABS_WEB_SCRAPER_USERNAME", "oxylabs-user")
-    monkeypatch.setenv("OXYLABS_WEB_SCRAPER_PASSWORD", "oxylabs-pass")
-    monkeypatch.setenv("CLOUDFLARE_ACCOUNT_ID", "cloudflare-account")
-    monkeypatch.setenv("CLOUDFLARE_EMAIL", "ops@example.test")
-    monkeypatch.setenv("CLOUDFLARE_API_KEY", "cloudflare-secret")
-    monkeypatch.setenv("BRIGHT_DATA_ZONE", "custom-zone")
-
-    secrets = ProviderSecrets()
-
-    assert secrets.tavily_api_key == "tavily-secret"
-    assert secrets.oxylabs_username == "oxylabs-user"
-    assert secrets.oxylabs_password == "oxylabs-pass"
-    assert secrets.cloudflare_account_id == "cloudflare-account"
-    assert secrets.cloudflare_email == "ops@example.test"
-    assert secrets.cloudflare_api_key == "cloudflare-secret"
-    assert secrets.bright_data_zone == "custom-zone"
-
-
-def test_provider_secrets_ignore_omnifetch_prefixed_provider_names(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setenv("OMNIFETCH_TAVILY_API_KEY", "wrong-prefix")
-    assert ProviderSecrets().tavily_api_key is None
+    monkeypatch.setenv("JINA_API_KEY", "jina-secret")
+    assert ProviderSecrets.from_env().get("JINA_API_KEY") == "jina-secret"
 
 
 def test_provider_secrets_are_frozen(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv("TAVILY_API_KEY", "tavily-secret")
-    secrets = ProviderSecrets()
+    secrets = ProviderSecrets.from_env()
 
-    with pytest.raises(ValidationError, match="Instance is frozen"):
-        secrets.tavily_api_key = "new-secret"
+    with pytest.raises(FrozenInstanceError):
+        secrets.__setattr__("_values", {})
+    with pytest.raises(TypeError):
+        cast(Any, secrets.values)["TAVILY_API_KEY"] = "new-secret"
+
+
+def test_provider_secrets_repr_redacts_values() -> None:
+    secrets = ProviderSecrets({"TAVILY_API_KEY": "tavily-secret"})
+    assert repr(secrets) == "ProviderSecrets(count=1)"
+    assert "tavily-secret" not in repr(secrets)
+    assert "TAVILY_API_KEY" not in repr(secrets)
 
 
 def test_server_settings_include_fetch_runtime_knobs(
@@ -88,6 +110,22 @@ def test_server_settings_include_fetch_runtime_knobs(
     assert settings.http_transient_retries == 1
     assert settings.uvloop == "off"
     assert settings.rest_fetch is False
+    assert settings.http_settings() == HttpSettings(
+        limit_per_host=7,
+        transient_retries=1,
+    )
+
+
+def test_server_settings_ignore_unaliased_names(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("TRANSPORT", "http")
+    monkeypatch.setenv("HTTP_LIMIT_PER_HOST", "7")
+
+    settings = ServerSettings()
+
+    assert settings.transport == "stdio"
+    assert settings.http_limit_per_host == 20
 
 
 def test_load_config_includes_provider_secrets(
@@ -98,4 +136,9 @@ def test_load_config_includes_provider_secrets(
     config = load_config(transport="http")
 
     assert config.server.transport == "http"
-    assert config.providers.jina_api_key == "jina-secret"
+    assert config.providers.get("JINA_API_KEY") == "jina-secret"
+
+
+def test_setting_validation_still_rejects_invalid_values() -> None:
+    with pytest.raises(ValidationError):
+        ServerSettings(http_limit_per_host=0)

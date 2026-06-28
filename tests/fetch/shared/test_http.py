@@ -12,6 +12,7 @@ import pytest
 import respx
 from pydantic import BaseModel
 
+from omnifetch.fetch.shared.config import HttpSettings
 from omnifetch.fetch.shared.http import (
     _HOST_SEMAPHORES,
     _MAX_RESPONSE_BYTES,
@@ -299,13 +300,11 @@ async def test_redacted_url_is_logged(
     assert not any("SECRET" in message for message in messages)
 
 
-async def test_same_host_concurrency_is_limited(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setenv("OMNIFETCH_HTTP_LIMIT_PER_HOST", "2")
+async def test_same_host_concurrency_is_limited() -> None:
     _HOST_SEMAPHORES.clear()
     in_flight = 0
     peak = 0
+    settings = HttpSettings(limit_per_host=2)
 
     async def handler(request: httpx.Request) -> httpx.Response:
         nonlocal in_flight, peak
@@ -318,7 +317,12 @@ async def test_same_host_concurrency_is_limited(
     async with _mock_client(httpx.MockTransport(handler)) as client:
         results = await asyncio.gather(
             *(
-                http_text(client, "provider", f"https://same.test/{index}")
+                http_text(
+                    client,
+                    "provider",
+                    f"https://same.test/{index}",
+                    http_settings=settings,
+                )
                 for index in range(10)
             )
         )
@@ -326,10 +330,7 @@ async def test_same_host_concurrency_is_limited(
     assert peak == 2
 
 
-async def test_invalid_host_limit_uses_default(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setenv("OMNIFETCH_HTTP_LIMIT_PER_HOST", "not-an-int")
+async def test_default_host_limit_is_used_without_settings() -> None:
     _HOST_SEMAPHORES.clear()
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -343,13 +344,11 @@ async def test_invalid_host_limit_uses_default(
     assert ("api.test", 20) in _HOST_SEMAPHORES
 
 
-async def test_different_hosts_are_not_throttled_together(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setenv("OMNIFETCH_HTTP_LIMIT_PER_HOST", "1")
+async def test_different_hosts_are_not_throttled_together() -> None:
     _HOST_SEMAPHORES.clear()
     in_flight = 0
     peak = 0
+    settings = HttpSettings(limit_per_host=1)
 
     async def handler(request: httpx.Request) -> httpx.Response:
         nonlocal in_flight, peak
@@ -361,8 +360,18 @@ async def test_different_hosts_are_not_throttled_together(
 
     async with _mock_client(httpx.MockTransport(handler)) as client:
         results = await asyncio.gather(
-            http_text(client, "provider", "https://one.test/a"),
-            http_text(client, "provider", "https://two.test/a"),
+            http_text(
+                client,
+                "provider",
+                "https://one.test/a",
+                http_settings=settings,
+            ),
+            http_text(
+                client,
+                "provider",
+                "https://two.test/a",
+                http_settings=settings,
+            ),
         )
     assert tuple(results) == ("ok", "ok")
     assert peak == 2
@@ -382,11 +391,9 @@ async def test_default_retry_count_does_not_retry() -> None:
     assert attempts == 1
 
 
-async def test_transient_retry_can_succeed(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setenv("OMNIFETCH_HTTP_TRANSIENT_RETRIES", "1")
+async def test_transient_retry_can_succeed() -> None:
     attempts = 0
+    settings = HttpSettings(transient_retries=1)
 
     def handler(request: httpx.Request) -> httpx.Response:
         nonlocal attempts
@@ -399,17 +406,20 @@ async def test_transient_retry_can_succeed(
 
     async with _mock_client(httpx.MockTransport(handler)) as client:
         assert (
-            await http_text(client, "provider", "https://api.test/retry")
+            await http_text(
+                client,
+                "provider",
+                "https://api.test/retry",
+                http_settings=settings,
+            )
             == "ok"
         )
     assert attempts == 2
 
 
-async def test_transient_retry_exhausts_once(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setenv("OMNIFETCH_HTTP_TRANSIENT_RETRIES", "1")
+async def test_transient_retry_exhausts_once() -> None:
     attempts = 0
+    settings = HttpSettings(transient_retries=1)
 
     def handler(request: httpx.Request) -> httpx.Response:
         nonlocal attempts
@@ -418,16 +428,21 @@ async def test_transient_retry_exhausts_once(
 
     async with _mock_client(httpx.MockTransport(handler)) as client:
         with pytest.raises(ProviderError):
-            await http_text(client, "provider", "https://api.test/retry")
+            await http_text(
+                client,
+                "provider",
+                "https://api.test/retry",
+                http_settings=settings,
+            )
     assert attempts == 2
 
 
 @pytest.mark.parametrize("status", [401, 403, 429, 404])
 async def test_non_transient_statuses_do_not_retry(
-    monkeypatch: pytest.MonkeyPatch, status: int
+    status: int,
 ) -> None:
-    monkeypatch.setenv("OMNIFETCH_HTTP_TRANSIENT_RETRIES", "1")
     attempts = 0
+    settings = HttpSettings(transient_retries=1)
 
     def handler(request: httpx.Request) -> httpx.Response:
         nonlocal attempts
@@ -436,7 +451,12 @@ async def test_non_transient_statuses_do_not_retry(
 
     async with _mock_client(httpx.MockTransport(handler)) as client:
         with pytest.raises(ProviderError):
-            await http_text(client, "provider", "https://api.test/no-retry")
+            await http_text(
+                client,
+                "provider",
+                "https://api.test/no-retry",
+                http_settings=settings,
+            )
     assert attempts == 1
 
 
@@ -449,5 +469,16 @@ def test_no_raw_http_clients_in_fetch_package() -> None:
         if path.name != "http.py"
         for needle in forbidden
         if needle in path.read_text(encoding="utf-8")
+    ]
+    assert offenders == []
+
+
+def test_no_runtime_environment_reads_outside_config_module() -> None:
+    root = Path("src/omnifetch")
+    offenders = [
+        str(path)
+        for path in root.rglob("*.py")
+        if path != Path("src/omnifetch/fetch/shared/config.py")
+        and "os.environ" in path.read_text(encoding="utf-8")
     ]
     assert offenders == []

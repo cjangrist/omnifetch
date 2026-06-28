@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from omnifetch.fetch.shared.config import ProviderSecrets
+from omnifetch.fetch.shared.config import HttpSettings, ProviderSecrets
 from omnifetch.fetch.shared.html import (
     extract_html_title,
     extract_markdown_title,
@@ -25,6 +25,7 @@ from omnifetch.fetch.shared.util import (
 __all__ = [
     "ErrorType",
     "FetchResult",
+    "HttpSettings",
     "ProviderError",
     "ProviderSecrets",
     "basic_auth",

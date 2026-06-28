@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import asyncio
 import json as json_lib
-import os
 from dataclasses import dataclass
 from typing import Any, overload, TypeVar
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
@@ -23,14 +22,14 @@ from tenacity import (
     wait_exponential_jitter,
 )
 
+from omnifetch.fetch.shared.config import HttpSettings
 from omnifetch.fetch.shared.types import ErrorType, ProviderError
 from omnifetch.fetch.shared.util import handle_rate_limit
 from omnifetch.logging import get_logger
 
 _LOGGER = get_logger("fetch.http")
 _MAX_RESPONSE_BYTES = 5 * 1024 * 1024
-_LIMIT_PER_HOST = 20
-_TRANSIENT_RETRIES = 0
+_DEFAULT_HTTP_SETTINGS = HttpSettings()
 _HTTP_OK_MIN = 200
 _HTTP_OK_MAX = 300
 _HTTP_UNAUTHORIZED = 401
@@ -55,30 +54,13 @@ class _RequestOptions:
     json: Any = None
     timeout_s: float | None = None
     expected_statuses: tuple[int, ...] = ()
+    http_settings: HttpSettings = _DEFAULT_HTTP_SETTINGS
 
 
-def _configured_non_negative_int(name: str, default: int) -> int:
-    """Return a non-negative integer from the environment, or ``default``."""
-    raw_value = os.environ.get(name)
-    if raw_value is None:
-        return default
-    try:
-        return max(0, int(raw_value))
-    except ValueError:
-        return default
-
-
-def _configured_positive_int(name: str, default: int) -> int:
-    """Return a positive integer from the environment, or ``default``."""
-    return max(1, _configured_non_negative_int(name, default))
-
-
-def _host_semaphore(url: str) -> asyncio.Semaphore:
+def _host_semaphore(url: str, http_settings: HttpSettings) -> asyncio.Semaphore:
     """Return the host-scoped concurrency semaphore for ``url``."""
     host = urlsplit(url).hostname or ""
-    limit = _configured_positive_int(
-        "OMNIFETCH_HTTP_LIMIT_PER_HOST", _LIMIT_PER_HOST
-    )
+    limit = http_settings.limit_per_host
     key = (host, limit)
     semaphore = _HOST_SEMAPHORES.get(key)
     if semaphore is None:
@@ -246,17 +228,14 @@ async def _request(
 ) -> tuple[str, int]:
     """Run one host-capped request with optional transient retry."""
     options = _RequestOptions(**kwargs)
-    retries = _configured_non_negative_int(
-        "OMNIFETCH_HTTP_TRANSIENT_RETRIES", _TRANSIENT_RETRIES
-    )
     async for attempt in AsyncRetrying(
         retry=retry_if_exception(_is_transient_error),
-        stop=stop_after_attempt(1 + retries),
+        stop=stop_after_attempt(1 + options.http_settings.transient_retries),
         wait=wait_exponential_jitter(initial=0.25, max=2.0),
         reraise=True,
     ):
         with attempt:
-            async with _host_semaphore(url):
+            async with _host_semaphore(url, options.http_settings):
                 return await _do_request(client, provider, url, options)
     raise RuntimeError("request retry helper exhausted")  # pragma: no cover
 
