@@ -22,8 +22,8 @@ ProviderError on failure; the orchestrator decides failover from the error type.
 from __future__ import annotations
 import abc
 import httpx
-from omnifetch.fetch.config import FetchProviderConfig, ProviderSecrets
-from omnifetch.fetch.types import FetchResult
+from omnifetch.fetch.shared.config import FetchProviderConfig, ProviderSecrets
+from omnifetch.fetch.shared.types import FetchResult
 
 
 class FetchProvider(abc.ABC):
@@ -78,10 +78,10 @@ dispatches fetch_url(url, name) to the right instance.
 """
 from __future__ import annotations
 import httpx
-from omnifetch.fetch.config import (PROVIDER_CONFIGS, ProviderSecrets, is_available)
+from omnifetch.fetch.shared.config import (PROVIDER_CONFIGS, ProviderSecrets, is_available)
 from omnifetch.fetch.providers.base import FetchProvider
 from omnifetch.fetch.providers import (tavily, firecrawl, jina, ...)  # all 28
-from omnifetch.fetch.types import ErrorType, FetchResult, ProviderError
+from omnifetch.fetch.shared.types import ErrorType, FetchResult, ProviderError
 
 PROVIDER_CLASSES: dict[str, type[FetchProvider]] = {
     "tavily": tavily.TavilyFetchProvider,
@@ -168,6 +168,9 @@ Bearer <k>`; `Q:<p>`=key in query param `<p>`; `H:<hdr>`=key in header `<hdr>`;
 - `oxylabs` reads BOTH `secrets.oxylabs_username`+`oxylabs_password`; build Basic
   via `basic_auth(user, pass)`.
 - `decodo` key is already base64 — pass straight into `Authorization: Basic`.
+- `olostep` reads `result.markdown_content` **only** — do **not** add a
+  `markdown_hosted_url` fallback (it's a type-only field in the TS response with no
+  runtime read; #4).
 - `cloudflare_browser` builds the path from `secrets.cloudflare_account_id`; auth
   is two headers, not one key — `validate_api_key` each of the three.
 - **GET providers with key in query** (scrapedo/scrapfly/scrapingbee/scraperapi/
@@ -179,10 +182,10 @@ Bearer <k>`; `Q:<p>`=key in query param `<p>`; `H:<hdr>`=key in header `<hdr>`;
 """Jina Reader (r.jina.ai): URL → markdown, fast + token-efficient."""
 from __future__ import annotations
 from typing import Any
-from omnifetch.fetch.http import http_json
+from omnifetch.fetch.shared.http import http_json
 from omnifetch.fetch.providers.base import FetchProvider
-from omnifetch.fetch.types import FetchResult
-from omnifetch.fetch.util import handle_provider_error, validate_api_key
+from omnifetch.fetch.shared.types import FetchResult
+from omnifetch.fetch.shared.util import handle_provider_error, validate_api_key
 
 
 class JinaFetchProvider(FetchProvider):

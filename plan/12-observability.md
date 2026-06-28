@@ -33,7 +33,7 @@ and the only output is one structured summary log per fetch.
 from __future__ import annotations
 import contextvars
 from typing import Protocol
-from omnifetch.fetch.types import FetchResult
+from omnifetch.fetch.shared.types import FetchResult
 
 class TraceSink(Protocol):
     def set_strategy(self, strategy: str) -> None: ...

@@ -95,7 +95,7 @@ is_fetch_failure mirrors fetch_orchestrator.ts; detect_grounded_junk mirrors the
 junk-pattern detector lifted from grounded_prompts.ts. Pure string work, no I/O.
 """
 from __future__ import annotations
-from omnifetch.fetch.types import FetchResult
+from omnifetch.fetch.shared.types import FetchResult
 
 _MIN_CONTENT_CHARS = 200
 _API_NATIVE_PROVIDERS = frozenset({"github", "supadata"})

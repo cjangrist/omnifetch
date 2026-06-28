@@ -69,8 +69,8 @@ from __future__ import annotations
 from key_value.aio.adapters.pydantic import PydanticAdapter
 from key_value.aio.protocols.key_value import AsyncKeyValue
 from key_value.aio.stores.memory import MemoryStore
-from omnifetch.fetch.types import FetchRaceResult
-from omnifetch.fetch.util import hash_key
+from omnifetch.fetch.shared.types import FetchRaceResult
+from omnifetch.fetch.shared.util import hash_key
 from omnifetch.logging import get_logger
 
 _LOGGER = get_logger("fetch.cache")

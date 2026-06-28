@@ -340,7 +340,9 @@ returns/raises on a schedule, with injectable delays) — no network.
    race immediately (subsequent steps **not** attempted); the same `NOT_FOUND`
    inside a parallel/sequential step is merely recorded and the race continues.
 6. **INVALID_INPUT fall-through**: a breaker provider raising `INVALID_INPUT`
-   (e.g. sociavault on non-social URL) falls through to the next provider.
+   (e.g. sociavault on a non-social URL, or **`snapchat.com`** — a `social_media`
+   breaker domain with **no** SociaVault route, #3) falls through to the next
+   provider.
 7. **Empty active set**: all providers skipped → `ProviderError(INVALID_INPUT,
    "No fetch providers available — all candidates skipped...")`; no keys → "...no
    providers configured with API keys".

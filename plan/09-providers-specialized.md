@@ -55,6 +55,15 @@ Flow:
 > serpapi is **not** API-native (not in `_API_NATIVE_PROVIDERS`), so its transcript
 > still passes the 200-char gate — fine for real transcripts.
 
+> **Typing fidelity (#2) — required normalization.** In TS the no-video-id branch
+> (`serpapi/index.ts:53-56`) throws a **plain `Error`** *before* its try/catch, so it
+> carries no `ErrorType`. The Python port MUST raise
+> `ProviderError(ErrorType.INVALID_INPUT, f"Not a YouTube URL: {url[:200]}", "serpapi")`
+> instead — so an explicit `provider:"serpapi"` call on a non-YouTube URL is typed
+> (REST→400, MCP→typed error) and falls through cleanly rather than surfacing an
+> unattributed exception. **supadata** has the identical plain-`Error` shape
+> (`supadata/index.ts:85-87`) — type it the same way.
+
 ## 09.3 sociavault — social-media platform routing
 
 Source: `sociavault/index.ts` (135). Auth: `H: X-API-Key`. Breaker provider for
@@ -85,6 +94,13 @@ Flow:
    capitalize each word).
 6. Result: `title=f"{platform} content"`, `metadata={"platform", "credits_used":
    data.creditsUsed}`.
+
+**Breaker/route mismatch (#3) — preserve exactly.** `snapchat.com` is in the
+`social_media` breaker domains (doc 10 §10.1) but has **no** `PLATFORM_ROUTES` entry.
+So a snapchat URL triggers the breaker, `detect_route` returns no match, sociavault
+raises `ProviderError(INVALID_INPUT)`, and the orchestrator **falls through** to the
+general waterfall (INVALID_INPUT = fall-through, not fast-fail). This is intentional
+in the TS source — do **not** "fix" it by inventing a snapchat route.
 
 Python notes:
 - `PLATFORM_ROUTES` → a module-level tuple of frozen dataclasses;
@@ -147,11 +163,14 @@ Python notes:
    flagged as failure by doc 05).
 2. **serpapi**: explicit-only — assert it is in `active_names` (when keyed) but
    **absent from the waterfall config** (doc 10 test); transcript snippets joined
-   by single spaces; `metadata.transcript_segments == len(transcript)`.
+   by single spaces; `metadata.transcript_segments == len(transcript)`; a
+   **non-YouTube URL raises `ProviderError(INVALID_INPUT)`** (#2 — typed, not a bare
+   `Error`); same for supadata.
 3. **sociavault**: each of the 9 host families routes to the right endpoint; an
-   unsupported host raises `ProviderError(INVALID_INPUT)`; `format_social_content`
-   renders `**Key:** value` lines with Title-Cased keys and recursively stringified
-   values; metadata carries `platform` + `credits_used`.
+   unsupported host raises `ProviderError(INVALID_INPUT)`; **`snapchat.com` (breaker
+   domain, no route) raises `INVALID_INPUT` → falls through** (#3);
+   `format_social_content` renders `**Key:** value` lines with Title-Cased keys and
+   recursively stringified values; metadata carries `platform` + `credits_used`.
 4. **kimi**: `build_kimi_fetch_headers` emits all `X-Msh-*` headers + a fresh
    `X-Msh-Tool-Call-Id`; `proxy_post_via_scrapfly` builds a Scrapfly URL whose
    query contains `headers[Authorization]=Bearer <k>` and `method=POST`; a proxied

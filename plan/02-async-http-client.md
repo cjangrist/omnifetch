@@ -74,8 +74,8 @@ from urllib.parse import urlsplit
 import httpx
 from tenacity import (AsyncRetrying, retry_if_exception, stop_after_attempt,
                       wait_exponential_jitter)
-from omnifetch.fetch.types import ErrorType, ProviderError
-from omnifetch.fetch.util import handle_rate_limit
+from omnifetch.fetch.shared.types import ErrorType, ProviderError
+from omnifetch.fetch.shared.util import handle_rate_limit
 from omnifetch.logging import get_logger
 
 _LOGGER = get_logger("fetch.http")
