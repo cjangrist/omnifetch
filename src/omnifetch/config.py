@@ -1,7 +1,7 @@
 """Typed, immutable application configuration.
 
-Server settings use the ``OMNIFETCH_`` prefix; telemetry uses the standard
-``OTEL_`` names. ``load_config`` reads ``os.environ`` once and returns a frozen
+Each runtime setting declares its exact environment variable via
+``validation_alias``. ``load_config`` reads settings once and returns a frozen
 ``AppConfig`` that is passed explicitly through the app.
 """
 
@@ -13,7 +13,7 @@ from typing import Any, Literal
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-from omnifetch.fetch.shared.config import ProviderSecrets
+from omnifetch.fetch.shared.config import HttpSettings, ProviderSecrets
 
 TransportName = Literal["stdio", "http", "sse"]
 OtelExporterName = Literal["", "none", "console", "otlp"]
@@ -23,25 +23,54 @@ UvloopModeName = Literal["auto", "off", "on"]
 
 
 class ServerSettings(BaseSettings):
-    """Runtime settings for the FastMCP server (env prefix ``OMNIFETCH_``)."""
+    """Runtime settings for the FastMCP server."""
 
     model_config = SettingsConfigDict(
-        env_prefix="OMNIFETCH_",
+        case_sensitive=True,
         extra="ignore",
         frozen=True,
+        populate_by_name=True,
     )
 
-    transport: TransportName = "stdio"
-    host: str = "127.0.0.1"
-    port: int = Field(default=8000, ge=1, le=65535)
-    log_level: str = "INFO"
-    cache_backend: CacheBackendName = "memory"
-    redis_url: str = ""
-    disk_cache_path: str = ".cache/omnifetch"
-    http_limit_per_host: int = Field(default=20, ge=1)
-    http_transient_retries: int = Field(default=0, ge=0)
-    uvloop: UvloopModeName = "auto"
-    rest_fetch: bool = True
+    transport: TransportName = Field(
+        default="stdio", validation_alias="OMNIFETCH_TRANSPORT"
+    )
+    host: str = Field(default="127.0.0.1", validation_alias="OMNIFETCH_HOST")
+    port: int = Field(
+        default=8000, ge=1, le=65535, validation_alias="OMNIFETCH_PORT"
+    )
+    log_level: str = Field(
+        default="INFO", validation_alias="OMNIFETCH_LOG_LEVEL"
+    )
+    cache_backend: CacheBackendName = Field(
+        default="memory", validation_alias="OMNIFETCH_CACHE_BACKEND"
+    )
+    redis_url: str = Field(default="", validation_alias="OMNIFETCH_REDIS_URL")
+    disk_cache_path: str = Field(
+        default=".cache/omnifetch",
+        validation_alias="OMNIFETCH_DISK_CACHE_PATH",
+    )
+    http_limit_per_host: int = Field(
+        default=20, ge=1, validation_alias="OMNIFETCH_HTTP_LIMIT_PER_HOST"
+    )
+    http_transient_retries: int = Field(
+        default=0,
+        ge=0,
+        validation_alias="OMNIFETCH_HTTP_TRANSIENT_RETRIES",
+    )
+    uvloop: UvloopModeName = Field(
+        default="auto", validation_alias="OMNIFETCH_UVLOOP"
+    )
+    rest_fetch: bool = Field(
+        default=True, validation_alias="OMNIFETCH_REST_FETCH"
+    )
+
+    def http_settings(self) -> HttpSettings:
+        """Return explicit settings for shared HTTP helpers."""
+        return HttpSettings(
+            limit_per_host=self.http_limit_per_host,
+            transient_retries=self.http_transient_retries,
+        )
 
 
 class TelemetrySettings(BaseSettings):
@@ -52,15 +81,28 @@ class TelemetrySettings(BaseSettings):
     """
 
     model_config = SettingsConfigDict(
+        case_sensitive=True,
         extra="ignore",
         frozen=True,
+        populate_by_name=True,
     )
 
-    otel_sdk_disabled: bool = False
-    otel_service_name: str = "omnifetch-mcp"
-    otel_traces_exporter: OtelExporterName = ""
-    otel_exporter_otlp_endpoint: str = ""
-    otel_exporter_otlp_protocol: OtelProtocolName = "http/protobuf"
+    otel_sdk_disabled: bool = Field(
+        default=False, validation_alias="OTEL_SDK_DISABLED"
+    )
+    otel_service_name: str = Field(
+        default="omnifetch-mcp", validation_alias="OTEL_SERVICE_NAME"
+    )
+    otel_traces_exporter: OtelExporterName = Field(
+        default="", validation_alias="OTEL_TRACES_EXPORTER"
+    )
+    otel_exporter_otlp_endpoint: str = Field(
+        default="", validation_alias="OTEL_EXPORTER_OTLP_ENDPOINT"
+    )
+    otel_exporter_otlp_protocol: OtelProtocolName = Field(
+        default="http/protobuf",
+        validation_alias="OTEL_EXPORTER_OTLP_PROTOCOL",
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -81,5 +123,5 @@ def load_config(**server_overrides: Any) -> AppConfig:
     return AppConfig(
         server=ServerSettings(**server_overrides),
         telemetry=TelemetrySettings(),
-        providers=ProviderSecrets(),
+        providers=ProviderSecrets.from_env(),
     )
