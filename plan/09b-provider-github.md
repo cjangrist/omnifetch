@@ -100,6 +100,11 @@ dataclass (`resource_type: str`, `owner/repo/ref/path/resource_id: str | None`).
 
 ## 09b.3 Supporting layers (port mechanically)
 
+- **`github/__init__.py`** must import the provider class (`from .provider import
+  GitHubFetchProvider`) so that when the registry auto-imports the `github`
+  subpackage, the class is loaded and **self-registers** (doc 07). The class declares
+  `name = "github"`, `base_url = "https://api.github.com"`, `timeout_ms = 30_000`,
+  `required_secrets = ("github_api_key",)`.
 - **`github/api.py`** (from `api.ts`): one REST GET helper — takes the **injected**
   `httpx.AsyncClient` (#6), sets `Authorization: Bearer <token>`,
   `Accept: application/vnd.github+json`, `X-GitHub-Api-Version`, `User-Agent`; calls

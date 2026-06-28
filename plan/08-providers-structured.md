@@ -57,8 +57,10 @@
 ---
 
 ## 08.2 Implementation notes
-- Same skeleton as doc 07: `validate_api_key` → `http_json` → guard → `FetchResult`
-  → `handle_provider_error`. All four use `http_json` (none use `http_text`).
+- Same skeleton as doc 07: each class **declares** `name`/`base_url`/`timeout_ms`/
+  `required_secrets` (self-registers via `__init_subclass__`), then `validate_api_key`
+  → `http_json` (httpx `json=` for POST bodies) → guard → `FetchResult` →
+  `handle_provider_error`. All four use `http_json` (none use `http_text`).
 - Build conditional metadata dicts with a comprehension over present keys, e.g.:
   ```python
   meta = {k: v for k, v in (("author", a.get("author")),

@@ -156,7 +156,7 @@ omnifetch/                       repo root
         types.py     — FetchResult, FetchRaceResult, ErrorType, ProviderError (01,06)
         html.py      — extract_html_title / extract_markdown_title        (01)
         util.py      — hash_key, validate_api_key, b64 auth, timeouts     (01)
-        config.py    — PROVIDER table + cache/http/uvloop/rest settings   (04,06)
+        config.py    — ProviderSecrets (env) + cache/http/uvloop/rest cfg  (04,06)
         http.py      — async HTTP: http_json/http_text/http_raw           (02)
         observability.py — OTEL spans + metrics + request_id              (12)
       engine/               orchestration core

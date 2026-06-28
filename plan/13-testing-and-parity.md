@@ -22,10 +22,10 @@ tests/
     test_html.py              # 01
     test_util.py              # 01  (hash_key cross-impl vector, basic_auth)
     test_http.py              # 02  (5MB cap, status map, redaction, json, per-host cap, bounded retry)
-    test_config.py            # 04  (availability combos, 28-entry parity)
+    test_config.py            # 04  (required_secrets availability combos, env parity)
     test_failure.py           # 05  (the gate interaction matrix)
     test_cache.py             # 06  (ttl, url-guard, corrupt-miss, backend-agnostic, concurrency)
-    test_registry.py          # 07  (28 names, dispatch, active gating)
+    test_registry.py          # 07  (self-registration 28 names, validate_registry guard, dispatch, gating)
     providers/
       test_generic.py         # 07  (parametrized over the 19, respx)
       test_structured.py      # 08  (zyte/diffbot/opengraph/scrappey)
