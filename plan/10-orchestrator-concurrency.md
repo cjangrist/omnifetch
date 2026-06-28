@@ -24,6 +24,7 @@ config.yaml).
 """
 from __future__ import annotations
 from dataclasses import dataclass
+from typing import Literal
 
 @dataclass(frozen=True, slots=True)
 class Breaker:
@@ -42,24 +43,30 @@ BREAKERS: tuple[Breaker, ...] = (
              "reddit.com", "threads.net", "snapchat.com")),
 )
 
-# Step kinds: ("solo", "p")  ("parallel", ("a","b"))  ("sequential", (...))
-WATERFALL_STEPS: tuple[tuple[str, object], ...] = (
-    ("solo", "tavily"),
-    ("solo", "firecrawl"),
-    ("solo", "kimi"),
-    ("parallel", ("linkup", "cloudflare_browser")),
-    ("parallel", ("diffbot", "olostep")),
-    ("parallel", ("scrapfly", "scrapedo", "decodo")),
-    ("solo", "zyte"),
-    ("solo", "brightdata"),
-    ("sequential", ("jina", "spider", "you", "scrapeless", "scrapingbee",
-                    "scrapegraphai", "scrappey", "scrapingant", "oxylabs",
-                    "scraperapi", "leadmagic", "opengraph")),
+@dataclass(frozen=True, slots=True)
+class Step:
+    kind: Literal["solo", "parallel", "sequential"]
+    providers: tuple[str, ...]            # solo → a 1-tuple
+
+WATERFALL_STEPS: tuple[Step, ...] = (
+    Step("solo", ("tavily",)),
+    Step("solo", ("firecrawl",)),
+    Step("solo", ("kimi",)),
+    Step("parallel", ("linkup", "cloudflare_browser")),
+    Step("parallel", ("diffbot", "olostep")),
+    Step("parallel", ("scrapfly", "scrapedo", "decodo")),
+    Step("solo", ("zyte",)),
+    Step("solo", ("brightdata",)),
+    Step("sequential", ("jina", "spider", "you", "scrapeless", "scrapingbee",
+                        "scrapegraphai", "scrappey", "scrapingant", "oxylabs",
+                        "scraperapi", "leadmagic", "opengraph")),
 )
 ```
-Prefer a small `Step` union (typed) over the loose tuple if mypy complains; a
-`@dataclass Step{kind, providers: tuple[str,...]}` is cleaner. (`serpapi` is
-intentionally absent — explicit-only, overview §0.6.)
+A typed `Step` dataclass — **not** a `(str, object)` tuple (that was a TS
+tagged-union idiom). `kind` is a `Literal`, so `match step.kind` is exhaustively
+checked by mypy and `step.providers` is always `tuple[str, ...]`. (`serpapi` is
+intentionally absent — explicit-only, overview §0.6; `validate_registry()` in doc 07
+asserts every name here is a registered provider.)
 
 ### `matches_breaker(url, breaker)` (`:200-209`)
 ```python
@@ -235,8 +242,20 @@ async def run_sequential(ctx, providers, target_count) -> list[tuple[str, FetchR
 (Sequential does **not** re-raise NOT_FOUND — parity with `:344-349`.)
 
 ### `execute_step` (`:354-370`) — dispatch a step
-`("solo", p)` → `run_solo` wrapped to `[(p, result)]`; `("parallel", ps)` →
-`run_parallel`; `("sequential", ps)` → `run_sequential`.
+```python
+async def execute_step(ctx: RaceContext, step: Step,
+                       target: int) -> list[tuple[str, FetchResult]]:
+    match step.kind:
+        case "solo":
+            r = await run_solo(ctx, step.providers[0])
+            return [(step.providers[0], r)] if r else []
+        case "parallel":
+            return await run_parallel(ctx, step.providers, target)
+        case "sequential":
+            return await run_sequential(ctx, step.providers, target)
+```
+`match step.kind` over a `Literal` is exhaustive (mypy flags a missing case) — no
+string-tag dispatch on a loose tuple.
 
 ---
 

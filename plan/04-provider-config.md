@@ -68,12 +68,11 @@ A dedicated `pydantic-settings` class, separate from `ServerSettings`
 their upstream names so an existing `.env`/Doppler setup drops in unchanged.
 
 ```python
-"""Fetch-provider configuration: secrets (env), static endpoints, availability.
+"""Fetch-provider secrets: the typed env-var contract.
 
-ProviderSecrets reads provider-native env var names (no OMNIFETCH_ prefix).
-PROVIDER_CONFIGS is the static base_url/timeout table. Availability mirrors each
-TS registration.key() — single-key, both-keys (oxylabs), or all-three
-(cloudflare_browser).
+ProviderSecrets reads provider-native env var names (no OMNIFETCH_ prefix). Endpoint,
+timeout, and required-secret declarations live on the provider classes (doc 07), not
+here — so there is no central config/availability dict to maintain.
 """
 from __future__ import annotations
 from dataclasses import dataclass
@@ -120,43 +119,26 @@ class ProviderSecrets(BaseSettings):
     kimi_api_key: str | None = Field(default=None, validation_alias="KIMI_API_KEY")
 ```
 
-### Static endpoint table
-```python
-@dataclass(frozen=True, slots=True)
-class FetchProviderConfig:
-    name: str
-    base_url: str
-    timeout_ms: int
+### Endpoint/timeout/availability live on the provider classes — no central dict
+Each provider **declares** its `base_url`, `timeout_ms`, and `required_secrets` as
+class attributes (doc 07 §07.1). The §04.1 table is the **reference data** for those
+values, but they are encoded on the classes — so there is **no** `PROVIDER_CONFIGS`
+dict and **no** `_TRIVIAL_KEYS`/`is_available` map to hand-maintain (that trio was a
+port of the TS `PROVIDERS`-array workaround; Python self-describes). Availability is
+the base classmethod `FetchProvider.is_available(secrets)` = "every `required_secrets`
+attr is set", which subsumes the old special cases:
+- single-key providers → `required_secrets = ("<x>_api_key",)`
+- **oxylabs** → `("oxylabs_username", "oxylabs_password")` (both)
+- **cloudflare_browser** → `("cloudflare_account_id", "cloudflare_email", "cloudflare_api_key")` (all 3)
+- **kimi** → `("kimi_api_key",)` (the Scrapfly dependency surfaces at call time)
 
-PROVIDER_CONFIGS: dict[str, FetchProviderConfig] = {
-    "tavily": FetchProviderConfig("tavily", "https://api.tavily.com", 30_000),
-    # ... one entry per row of §04.1 ...
-    "cloudflare_browser": FetchProviderConfig(
-        "cloudflare_browser", "https://api.cloudflare.com/client/v4", 45_000),
-    "kimi": FetchProviderConfig("kimi", "https://api.kimi.com", 60_000),
-}
-```
-
-### Availability (mirror each `registration.key()`)
-```python
-_TRIVIAL_KEYS: dict[str, str] = {           # name -> secrets attr (single-key)
-    "tavily": "tavily_api_key", "firecrawl": "firecrawl_api_key", ...,
-    "kimi": "kimi_api_key",
-}
-
-def is_available(name: str, s: ProviderSecrets) -> bool:
-    """True when a provider has the secret(s) its TS registration.key() requires."""
-    if name == "oxylabs":
-        return bool(s.oxylabs_username and s.oxylabs_password)
-    if name == "cloudflare_browser":
-        return bool(s.cloudflare_account_id and s.cloudflare_email
-                    and s.cloudflare_api_key)
-    attr = _TRIVIAL_KEYS.get(name)
-    return bool(attr and getattr(s, attr))
-```
+The §04.1 "avail rule" column is exactly each provider's `required_secrets`.
 
 ### Wire into `AppConfig` (`config.py`)
-Extend the existing frozen aggregate (`config.py:55-72`):
+`ProviderSecrets` stays the one **central** piece — the typed env contract. Adding a
+provider adds its field here + to `.env.example`; that plus the waterfall slot are the
+only touch-points beyond the one provider file (doc 07). Extend the frozen aggregate
+(`config.py:55-72`):
 ```python
 @dataclass(frozen=True, slots=True)
 class AppConfig:
@@ -169,8 +151,8 @@ def load_config(**server_overrides: Any) -> AppConfig:
                      telemetry=TelemetrySettings(),
                      providers=ProviderSecrets())     # NEW
 ```
-`PROVIDER_CONFIGS` stays a module constant (static, never per-env). Providers
-receive `(FetchProviderConfig, ProviderSecrets)` at construction (doc 07).
+Providers receive `(ProviderSecrets, client)` at construction (doc 07) and pull their
+own config from class attrs + their secret fields off `ProviderSecrets`.
 
 **Cache backend settings** (server-level, `OMNIFETCH_` prefix) go on
 `ServerSettings` (`config.py:21-33`), NOT `ProviderSecrets`, since they configure
@@ -194,17 +176,20 @@ the engine runs with whatever subset is configured (parity: `get_active_fetch_pr
 ---
 
 ## 04.4 Acceptance criteria
-- With only `TAVILY_API_KEY` set, `is_available("tavily")` is True and every other
-  `is_available(...)` is False.
+- With only `TAVILY_API_KEY` set, `TavilyFetchProvider.is_available(secrets)` is True
+  and every other provider's is False.
 - `oxylabs` available **iff both** username+password set; `cloudflare_browser`
-  available **iff all three** set (table-driven test over partial combos).
+  available **iff all three** set (table-driven test over partial combos, via each
+  class's `required_secrets`).
 - `bright_data_zone` defaults to `"unblocker"` and is overridable.
-- `PROVIDER_CONFIGS` has exactly 28 entries; names match the registry (doc 07) 1:1.
+- After `import_all_providers()`, `_REGISTRY` has exactly **28** entries; each class's
+  `base_url`/`timeout_ms`/`required_secrets` match the §04.1 table (doc 07 guard).
 - `ProviderSecrets()` reads from `os.environ` and is frozen (mutation raises).
 - `conftest.py`'s `isolated_env` must be extended to also strip provider env vars
   so tests stay hermetic (see doc 13).
 - `mypy --strict` + ruff clean.
 
 ## 04.5 Interfaces
-**Exposes:** `ProviderSecrets`, `FetchProviderConfig`, `PROVIDER_CONFIGS`,
-`is_available`, `provider_key`. **Consumes:** `pydantic-settings` only.
+**Exposes:** `ProviderSecrets` (+ the cache/http/uvloop/rest `ServerSettings` fields).
+Endpoint/timeout/availability are **on the provider classes** (doc 07), not here.
+**Consumes:** `pydantic-settings` only.

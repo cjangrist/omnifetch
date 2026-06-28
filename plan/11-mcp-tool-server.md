@@ -189,7 +189,8 @@ import contextlib, httpx
 from omnifetch.config import load_config
 from omnifetch.fetch.engine.cache import FetchCache, build_cache_store
 from omnifetch.fetch.engine.runtime import Engine
-from omnifetch.fetch.providers.registry import UnifiedFetchProvider
+from omnifetch.fetch.providers.registry import (UnifiedFetchProvider,
+                                                validate_registry)
 
 def build_server() -> FastMCP:
     config = load_config()
@@ -212,6 +213,7 @@ def build_server() -> FastMCP:
                      strict_input_validation=True, mask_error_details=True,
                      lifespan=lifespan)
     register_tools(server, engine)
+    validate_registry()          # fail fast if waterfall/breaker names ⊄ registry
     return server
 ```
 - **Verify the exact FastMCP 3.4.2 lifespan API** (`lifespan=` kwarg vs a

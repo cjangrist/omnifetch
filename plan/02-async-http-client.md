@@ -69,9 +69,10 @@ from __future__ import annotations
 import asyncio
 import json
 import re
-from typing import Any
+from typing import Any, TypeVar, overload
 from urllib.parse import urlsplit
 import httpx
+from pydantic import BaseModel
 from tenacity import (AsyncRetrying, retry_if_exception, stop_after_attempt,
                       wait_exponential_jitter)
 from omnifetch.fetch.shared.types import ErrorType, ProviderError
@@ -158,12 +159,13 @@ async def _do_request(client: httpx.AsyncClient, provider: str, url: str, *,
                       method: str = "GET",
                       headers: dict[str, str] | None = None,
                       content: str | bytes | None = None,
+                      json: Any = None,
                       timeout_s: float | None = None,
                       expected_statuses: tuple[int, ...] = ()) -> tuple[str, int]:
     _LOGGER.debug("HTTP %s %s", method, _redact(url))
     try:
         async with client.stream(
-            method, url, headers=headers, content=content,
+            method, url, headers=headers, content=content, json=json,
             timeout=timeout_s if timeout_s is not None else httpx.USE_CLIENT_DEFAULT,
         ) as resp:
             raw = await _read_capped(resp, provider)
@@ -222,14 +224,23 @@ def _raise_for_status(provider: str, status: int, raw: str,
 
 ### Public wrappers
 ```python
-async def http_json(client: httpx.AsyncClient, provider: str, url: str,
-                    **kw: Any) -> Any:
+T = TypeVar("T", bound=BaseModel)
+
+@overload
+async def http_json(client: httpx.AsyncClient, provider: str, url: str, *,
+                    model: type[T], **kw: Any) -> T: ...
+@overload
+async def http_json(client: httpx.AsyncClient, provider: str, url: str, *,
+                    model: None = None, **kw: Any) -> Any: ...
+async def http_json(client: httpx.AsyncClient, provider: str, url: str, *,
+                    model: type[T] | None = None, **kw: Any) -> Any:
     raw, _ = await _request(client, provider, url, **kw)
     try:
-        return json.loads(raw)
+        data = json.loads(raw)
     except json.JSONDecodeError as exc:
         raise ProviderError(ErrorType.API_ERROR,
                             f"Invalid JSON response from {provider}", provider) from exc
+    return model.model_validate(data) if model is not None else data
 
 async def http_text(client: httpx.AsyncClient, provider: str, url: str,
                     **kw: Any) -> str:
@@ -245,10 +256,14 @@ async def http_raw(client: httpx.AsyncClient, provider: str, url: str,
 ```
 The `client` is always the **first positional arg** — providers pass `self._client`
 (doc 07), so the call site reads `http_json(self._client, self.name, url, …)`.
-(`http_json` is typed `-> Any` because each provider casts to its own
-`TypedDict`/parse; this is the one sanctioned `Any` and is why providers validate
-shape immediately. Consider a generic `http_json[T]` returning `T` via a
-`type[T]` arg if stricter typing is desired.)
+
+**Polish (opt-in):** providers send JSON bodies via httpx's **`json=`** kwarg — it
+serializes the dict *and* sets `Content-Type`, so no manual `json.dumps` (the jina
+example in doc 07 uses it). And a provider that defines a Pydantic response model can
+pass **`model=MyResponse`** and get a typed, validated object back (the `@overload`s
+make the return `T`); omit `model` to get the plain `dict`/`Any` and use `.get()`.
+Most providers stay on `Any`; the typed path is there for those that want strictness
+— it replaces the old "one sanctioned `Any`" caveat.
 
 ### `_redact(url)` — parity with `sanitize_url` (`:23-38`)
 Rebuild the URL with `_SENSITIVE` query params replaced by `[REDACTED]`, slice to
