@@ -79,11 +79,56 @@ precedence.
 | `OMNIFETCH_HOST` | `127.0.0.1` | Bind host (http/sse) |
 | `OMNIFETCH_PORT` | `8000` | Bind port (http/sse) |
 | `OMNIFETCH_LOG_LEVEL` | `INFO` | Logging level |
+| `OMNIFETCH_CACHE_BACKEND` | `memory` | Fetch cache backend: `memory`, `redis`, or `disk` |
+| `OMNIFETCH_REDIS_URL` | _(empty)_ | Redis URL when `OMNIFETCH_CACHE_BACKEND=redis` |
+| `OMNIFETCH_DISK_CACHE_PATH` | `.cache/omnifetch` | Disk cache path when `OMNIFETCH_CACHE_BACKEND=disk` |
+| `OMNIFETCH_HTTP_LIMIT_PER_HOST` | `20` | Per-host async HTTP concurrency cap |
+| `OMNIFETCH_HTTP_TRANSIENT_RETRIES` | `0` | Transient fetch HTTP retries before provider failover |
+| `OMNIFETCH_UVLOOP` | `auto` | `auto`, `on`, or `off` runtime loop selection |
+| `OMNIFETCH_REST_FETCH` | `true` | Enable the HTTP `/fetch` convenience route |
 | `OTEL_TRACES_EXPORTER` | _(empty)_ | `console` or `otlp` to **enable** tracing |
 | `OTEL_SERVICE_NAME` | `omnifetch-mcp` | Service name in traces |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | _(empty)_ | OTLP collector endpoint |
 | `OTEL_EXPORTER_OTLP_PROTOCOL` | `http/protobuf` | `http/protobuf` or `grpc` |
 | `OTEL_SDK_DISABLED` | `false` | Force-disable the SDK |
+
+Fetch provider secrets use provider-native names with no `OMNIFETCH_` prefix.
+Configure any subset; missing providers remain disabled.
+
+| Variable | Default | Enables |
+|---|---|---|
+| `TAVILY_API_KEY` | _(empty)_ | Tavily fetch |
+| `FIRECRAWL_API_KEY` | _(empty)_ | Firecrawl fetch |
+| `JINA_API_KEY` | _(empty)_ | Jina Reader |
+| `YOU_API_KEY` | _(empty)_ | You.com fetch |
+| `BRIGHT_DATA_API_KEY` | _(empty)_ | Bright Data |
+| `BRIGHT_DATA_ZONE` | `unblocker` | Bright Data zone |
+| `LINKUP_API_KEY` | _(empty)_ | Linkup |
+| `DIFFBOT_TOKEN` | _(empty)_ | Diffbot |
+| `SOCIAVAULT_API_KEY` | _(empty)_ | SociaVault |
+| `SPIDER_CLOUD_API_TOKEN` | _(empty)_ | Spider Cloud |
+| `SCRAPFLY_API_KEY` | _(empty)_ | Scrapfly and Kimi proxying |
+| `SCRAPEGRAPHAI_API_KEY` | _(empty)_ | ScrapeGraphAI |
+| `SCRAPE_DO_API_TOKEN` | _(empty)_ | Scrape.do |
+| `SCRAPELESS_API_KEY` | _(empty)_ | Scrapeless |
+| `OPENGRAPH_IO_API_KEY` | _(empty)_ | OpenGraph.io |
+| `SCRAPINGBEE_API_KEY` | _(empty)_ | ScrapingBee |
+| `SCRAPERAPI_API_KEY` | _(empty)_ | ScraperAPI |
+| `ZYTE_API_KEY` | _(empty)_ | Zyte |
+| `SCRAPINGANT_API_KEY` | _(empty)_ | ScrapingAnt |
+| `OXYLABS_WEB_SCRAPER_USERNAME` | _(empty)_ | Oxylabs username |
+| `OXYLABS_WEB_SCRAPER_PASSWORD` | _(empty)_ | Oxylabs password |
+| `OLOSTEP_API_KEY` | _(empty)_ | Olostep |
+| `DECODO_WEB_SCRAPING_API_KEY` | _(empty)_ | Decodo pre-encoded Basic auth key |
+| `SCRAPPEY_API_KEY` | _(empty)_ | Scrappey |
+| `LEADMAGIC_API_KEY` | _(empty)_ | LeadMagic |
+| `CLOUDFLARE_ACCOUNT_ID` | _(empty)_ | Cloudflare Browser Rendering account |
+| `CLOUDFLARE_EMAIL` | _(empty)_ | Cloudflare Browser Rendering email |
+| `CLOUDFLARE_API_KEY` | _(empty)_ | Cloudflare Browser Rendering key |
+| `SERPAPI_API_KEY` | _(empty)_ | SerpAPI explicit fetch provider |
+| `SUPADATA_API_KEY` | _(empty)_ | Supadata |
+| `GITHUB_API_KEY` | _(empty)_ | GitHub fetch |
+| `KIMI_API_KEY` | _(empty)_ | Kimi fetch |
 
 ### Telemetry
 
