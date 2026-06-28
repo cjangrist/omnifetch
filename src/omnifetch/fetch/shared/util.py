@@ -14,6 +14,7 @@ import hmac
 import re
 from collections.abc import AsyncIterator, Awaitable, Callable
 from typing import NoReturn, TypeVar
+from urllib.parse import urlsplit
 
 from tenacity import (
     AsyncRetrying,
@@ -26,6 +27,23 @@ from omnifetch.fetch.shared.types import ErrorType, ProviderError
 
 _CONTROL_CHARACTERS = re.compile(r"[\x00-\x1f\x7f]")
 _WRAPPING_QUOTES = re.compile(r"""^(['"])(.*)\1$""", re.DOTALL)
+_URL_TOKEN = re.compile(r"https?://\S+")
+_NOT_FOUND_ERROR_PATTERN = re.compile(
+    r"\b404\s+not\s+found\b"
+    r"|"
+    r"\b(?:target|url|page)\b.{0,80}"
+    r"(?:\bnot found\b|\b404\b)"
+    r"|"
+    r"(?:\bnot found\b|\b404\b).{0,80}"
+    r"\b(?:target|url|page)\b"
+    r"|"
+    r"\bhttp\s+status\s+404\b.{0,80}\b(?:target|url|page)\b"
+    r"|"
+    r"\bserver\b.{0,32}\breturned\b.{0,16}\b404\b"
+    r"|"
+    r"\bcould\s+not\s+find\b.{0,80}\b(?:target|url|page)\b",
+    re.IGNORECASE,
+)
 _DEFAULT_MAX_RETRIES = 3
 _DEFAULT_MIN_TIMEOUT_MS = 2000
 _DEFAULT_MAX_TIMEOUT_MS = 5000
@@ -69,6 +87,50 @@ def timing_safe_equal(first_value: str, second_value: str) -> bool:
 def sanitize_for_log(text: str) -> str:
     """Strip control characters and clamp text to 200 characters."""
     return _CONTROL_CHARACTERS.sub("", text)[:200]
+
+
+def _target_url_variants(target_url: str) -> tuple[str, ...]:
+    """Return target URL forms providers commonly echo in messages."""
+    if not target_url:
+        return ()
+
+    variants = {target_url}
+    try:
+        parts = urlsplit(target_url)
+    except ValueError:
+        return tuple(variants)
+
+    host_path = f"{parts.netloc}{parts.path}"
+    if host_path:
+        variants.add(host_path)
+        if parts.query:
+            variants.add(f"{host_path}?{parts.query}")
+    return tuple(sorted(variants, key=len, reverse=True))
+
+
+def _strip_target_url_variants(message: str, target_url: str | None) -> str:
+    """Remove exact and schemeless target URL echoes from a message."""
+    if target_url is None:
+        return message
+    stripped_message = message
+    for variant in _target_url_variants(target_url):
+        stripped_message = re.sub(
+            re.escape(variant),
+            " ",
+            stripped_message,
+            flags=re.IGNORECASE,
+        )
+    return stripped_message
+
+
+def is_not_found_error_message(
+    message: str,
+    target_url: str | None = None,
+) -> bool:
+    """Return whether a provider message indicates a missing target."""
+    without_target_url = _strip_target_url_variants(message, target_url)
+    searchable_message = _URL_TOKEN.sub(" ", without_target_url)
+    return _NOT_FOUND_ERROR_PATTERN.search(searchable_message) is not None
 
 
 def handle_rate_limit(provider: str, reset_time: str | None = None) -> None:

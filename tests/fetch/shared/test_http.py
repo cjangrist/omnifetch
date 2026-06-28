@@ -148,6 +148,12 @@ async def test_http_json_rejects_invalid_json() -> None:
             ErrorType.API_ERROR,
             "API key does not have access to this endpoint",
         ),
+        (
+            404,
+            '{"message": "gone"}',
+            ErrorType.API_ERROR,
+            "provider endpoint not found (404): gone",
+        ),
         (429, "{}", ErrorType.RATE_LIMIT, "Rate limit exceeded for provider"),
         (
             500,

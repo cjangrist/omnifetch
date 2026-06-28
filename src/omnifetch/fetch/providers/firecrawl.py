@@ -6,11 +6,16 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from omnifetch.fetch.providers.base import FetchProvider
 from omnifetch.fetch.shared.http import http_json
-from omnifetch.fetch.shared.types import FetchResult
-from omnifetch.fetch.shared.util import handle_provider_error, validate_api_key
+from omnifetch.fetch.shared.types import ErrorType, FetchResult, ProviderError
+from omnifetch.fetch.shared.util import (
+    handle_provider_error,
+    is_not_found_error_message,
+    validate_api_key,
+)
 
 _API_KEY_ENV_NAME = "FIRECRAWL_API_KEY"
 _TIMEOUT_MS = 30_000
+_HTTP_NOT_FOUND_STATUS = 404
 
 
 class _FirecrawlMetadata(BaseModel):
@@ -43,6 +48,7 @@ class _FirecrawlScrapeResponse(BaseModel):
 
     success: bool
     data: _FirecrawlData | None = None
+    error: str | None = None
 
 
 class FirecrawlFetchProvider(FetchProvider):
@@ -76,13 +82,27 @@ class FirecrawlFetchProvider(FetchProvider):
                 timeout_s=self.timeout_s,
             )
             if not data.success:
+                if data.error:
+                    if is_not_found_error_message(data.error, url):
+                        raise ProviderError(
+                            ErrorType.NOT_FOUND,
+                            f"Firecrawl scrape failed: {data.error}",
+                            self.name,
+                        )
+                    raise ValueError(f"Firecrawl scrape failed: {data.error}")
                 raise ValueError("Firecrawl scrape failed")
             if data.data is None:
                 raise ValueError("Firecrawl scrape returned no content")
-            if not data.data.markdown:
-                raise ValueError("Firecrawl scrape returned no content")
 
             metadata = data.data.metadata
+            if metadata and metadata.status_code == _HTTP_NOT_FOUND_STATUS:
+                raise ProviderError(
+                    ErrorType.NOT_FOUND,
+                    "Firecrawl target returned status 404",
+                    self.name,
+                )
+            if not data.data.markdown:
+                raise ValueError("Firecrawl scrape returned no content")
             return FetchResult(
                 url=metadata.source_url
                 if metadata and metadata.source_url

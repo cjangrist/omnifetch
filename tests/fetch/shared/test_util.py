@@ -14,6 +14,7 @@ from omnifetch.fetch.shared.util import (
     handle_provider_error,
     handle_rate_limit,
     hash_key,
+    is_not_found_error_message,
     provider_timeout,
     retry_with_backoff,
     sanitize_for_log,
@@ -69,6 +70,63 @@ def test_timing_safe_equal_rejects_different_lengths() -> None:
 
 def test_sanitize_for_log_strips_controls_and_clamps() -> None:
     assert sanitize_for_log("a\x00b\nc" + ("x" * 250)) == "abc" + ("x" * 197)
+
+
+@pytest.mark.parametrize(
+    ("message", "target_url", "expected"),
+    [
+        ("Target URL returned 404", None, True),
+        ("target URL was not found", None, True),
+        ("HTTP status 404 for target URL", None, True),
+        ("404 Not Found", None, True),
+        ("The server returned a 404", None, True),
+        ("Could not find the page you requested", None, True),
+        ("Account not found for this API key", None, False),
+        ("Engine not found", None, False),
+        ("Invalid response: 404", None, False),
+        ("Resource limit: 404 concurrent connections", None, False),
+        ("upstream proxy returned 404", None, False),
+        ("blocked by provider", None, False),
+        (
+            "Failed to scrape https://shop.test/products/widget-404: reset",
+            "https://shop.test/products/widget-404",
+            False,
+        ),
+        (
+            "Page https://shop.test/products/widget-404 failed: reset",
+            "https://shop.test/products/Widget-404",
+            False,
+        ),
+        (
+            "Page shop.test/products/widget-404 failed: reset",
+            "https://shop.test/products/Widget-404",
+            False,
+        ),
+        (
+            "URL shop.test/products/widget-404 failed: reset",
+            "https://shop.test/products/Widget-404",
+            False,
+        ),
+        (
+            "URL shop.test/products/widget-404?source=provider failed: reset",
+            "https://shop.test/products/Widget-404?source=provider",
+            False,
+        ),
+        (
+            "Page http://[bad failed: reset",
+            "http://[bad",
+            False,
+        ),
+        ("Target URL returned 404", "", True),
+        ("Target URL returned 404", "?source=provider", True),
+    ],
+)
+def test_is_not_found_error_message(
+    message: str,
+    target_url: str | None,
+    expected: bool,
+) -> None:
+    assert is_not_found_error_message(message, target_url) is expected
 
 
 def test_handle_rate_limit_raises_without_reset() -> None:

@@ -12,6 +12,7 @@ import respx
 
 import omnifetch.fetch.providers.firecrawl as firecrawl_module
 import omnifetch.fetch.providers.tavily as tavily_module
+from omnifetch.fetch.engine.race import run_fetch_race
 from omnifetch.fetch.providers import (
     base,
     get_active_fetch_providers,
@@ -132,6 +133,176 @@ async def test_tavily_rejects_empty_or_failed_results(
     assert str(error_info.value) == message
 
 
+async def test_tavily_maps_missing_target_to_not_found() -> None:
+    with respx.mock(assert_all_called=True) as router:
+        router.post("https://api.tavily.com/extract").respond(
+            json={
+                "results": [],
+                "failed_results": [
+                    {
+                        "url": "https://example.test/missing",
+                        "error": "Target URL returned 404",
+                    }
+                ],
+            }
+        )
+        async with httpx.AsyncClient() as client:
+            provider = TavilyFetchProvider(
+                ProviderSecrets({"TAVILY_API_KEY": "tavily-secret"}),
+                client,
+            )
+            with pytest.raises(ProviderError) as error_info:
+                await provider.fetch_url("https://example.test/missing")
+
+    assert error_info.value.error_type is ErrorType.NOT_FOUND
+    assert str(error_info.value) == (
+        "Tavily extraction failed: Target URL returned 404"
+    )
+
+
+async def test_tavily_target_url_404_text_continues_race(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(base, "_REGISTRY", {})
+    importlib.reload(firecrawl_module)
+    importlib.reload(tavily_module)
+
+    target_url = "https://example.test/products/widget-404"
+    with respx.mock(assert_all_called=True) as router:
+        router.post("https://api.tavily.com/extract").respond(
+            json={
+                "results": [],
+                "failed_results": [
+                    {
+                        "url": target_url,
+                        "error": f"Failed to scrape {target_url}: reset",
+                    }
+                ],
+            }
+        )
+        router.post("https://api.firecrawl.dev/v2/scrape").respond(
+            json={
+                "success": True,
+                "data": {
+                    "markdown": "# Firecrawl\n\n" + ("useful content " * 30)
+                },
+            }
+        )
+        async with httpx.AsyncClient() as client:
+            unified = UnifiedFetchProvider(
+                ProviderSecrets(
+                    {
+                        "FIRECRAWL_API_KEY": "fire-secret",
+                        "TAVILY_API_KEY": "tavily-secret",
+                    }
+                ),
+                client,
+            )
+            result = await run_fetch_race(unified, target_url)
+
+    assert result.provider_used == "firecrawl"
+    assert result.providers_attempted == ("tavily", "firecrawl")
+    assert [failure.provider for failure in result.providers_failed] == [
+        "tavily"
+    ]
+
+
+async def test_tavily_normalized_target_url_404_text_continues_race(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(base, "_REGISTRY", {})
+    importlib.reload(firecrawl_module)
+    importlib.reload(tavily_module)
+
+    target_url = "https://example.test/products/Widget-404"
+    echoed_url = "https://example.test/products/widget-404"
+    with respx.mock(assert_all_called=True) as router:
+        router.post("https://api.tavily.com/extract").respond(
+            json={
+                "results": [],
+                "failed_results": [
+                    {
+                        "url": echoed_url,
+                        "error": f"Page {echoed_url} failed: reset",
+                    }
+                ],
+            }
+        )
+        router.post("https://api.firecrawl.dev/v2/scrape").respond(
+            json={
+                "success": True,
+                "data": {
+                    "markdown": "# Firecrawl\n\n" + ("useful content " * 30)
+                },
+            }
+        )
+        async with httpx.AsyncClient() as client:
+            unified = UnifiedFetchProvider(
+                ProviderSecrets(
+                    {
+                        "FIRECRAWL_API_KEY": "fire-secret",
+                        "TAVILY_API_KEY": "tavily-secret",
+                    }
+                ),
+                client,
+            )
+            result = await run_fetch_race(unified, target_url)
+
+    assert result.provider_used == "firecrawl"
+    assert result.providers_attempted == ("tavily", "firecrawl")
+    assert [failure.provider for failure in result.providers_failed] == [
+        "tavily"
+    ]
+
+
+async def test_tavily_schemeless_target_url_404_text_continues_race(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(base, "_REGISTRY", {})
+    importlib.reload(firecrawl_module)
+    importlib.reload(tavily_module)
+
+    target_url = "https://example.test/products/Widget-404"
+    echoed_url = "example.test/products/widget-404"
+    with respx.mock(assert_all_called=True) as router:
+        router.post("https://api.tavily.com/extract").respond(
+            json={
+                "results": [],
+                "failed_results": [
+                    {
+                        "url": f"https://{echoed_url}",
+                        "error": f"Page {echoed_url} failed: reset",
+                    }
+                ],
+            }
+        )
+        router.post("https://api.firecrawl.dev/v2/scrape").respond(
+            json={
+                "success": True,
+                "data": {
+                    "markdown": "# Firecrawl\n\n" + ("useful content " * 30)
+                },
+            }
+        )
+        async with httpx.AsyncClient() as client:
+            unified = UnifiedFetchProvider(
+                ProviderSecrets(
+                    {
+                        "FIRECRAWL_API_KEY": "fire-secret",
+                        "TAVILY_API_KEY": "tavily-secret",
+                    }
+                ),
+                client,
+            )
+            result = await run_fetch_race(unified, target_url)
+
+    assert result.provider_used == "firecrawl"
+    assert result.providers_attempted == ("tavily", "firecrawl")
+    assert [failure.provider for failure in result.providers_failed] == [
+        "tavily"
+    ]
+
+
 async def test_firecrawl_fetches_markdown() -> None:
     with respx.mock(assert_all_called=True) as router:
 
@@ -244,6 +415,68 @@ async def test_firecrawl_rejects_failed_or_empty_results(
 
     assert error_info.value.error_type is ErrorType.API_ERROR
     assert str(error_info.value) == message
+
+
+async def test_firecrawl_maps_error_payload_to_not_found() -> None:
+    with respx.mock(assert_all_called=True) as router:
+        router.post("https://api.firecrawl.dev/v2/scrape").respond(
+            json={"success": False, "error": "Target page not found"}
+        )
+        async with httpx.AsyncClient() as client:
+            provider = FirecrawlFetchProvider(
+                ProviderSecrets({"FIRECRAWL_API_KEY": "fire-secret"}),
+                client,
+            )
+            with pytest.raises(ProviderError) as error_info:
+                await provider.fetch_url("https://example.test/missing")
+
+    assert error_info.value.error_type is ErrorType.NOT_FOUND
+    assert str(error_info.value) == (
+        "Firecrawl scrape failed: Target page not found"
+    )
+
+
+async def test_firecrawl_preserves_non_not_found_error_payload() -> None:
+    with respx.mock(assert_all_called=True) as router:
+        router.post("https://api.firecrawl.dev/v2/scrape").respond(
+            json={"success": False, "error": "Proxy pool exhausted"}
+        )
+        async with httpx.AsyncClient() as client:
+            provider = FirecrawlFetchProvider(
+                ProviderSecrets({"FIRECRAWL_API_KEY": "fire-secret"}),
+                client,
+            )
+            with pytest.raises(ProviderError) as error_info:
+                await provider.fetch_url("https://example.test/article")
+
+    assert error_info.value.error_type is ErrorType.API_ERROR
+    assert str(error_info.value) == (
+        "Failed to fetch URL content: Firecrawl scrape failed: "
+        "Proxy pool exhausted"
+    )
+
+
+async def test_firecrawl_maps_target_status_to_not_found() -> None:
+    with respx.mock(assert_all_called=True) as router:
+        router.post("https://api.firecrawl.dev/v2/scrape").respond(
+            json={
+                "success": True,
+                "data": {
+                    "markdown": "",
+                    "metadata": {"statusCode": 404},
+                },
+            }
+        )
+        async with httpx.AsyncClient() as client:
+            provider = FirecrawlFetchProvider(
+                ProviderSecrets({"FIRECRAWL_API_KEY": "fire-secret"}),
+                client,
+            )
+            with pytest.raises(ProviderError) as error_info:
+                await provider.fetch_url("https://example.test/missing")
+
+    assert error_info.value.error_type is ErrorType.NOT_FOUND
+    assert str(error_info.value) == "Firecrawl target returned status 404"
 
 
 def test_tavily_and_firecrawl_register_and_gate(

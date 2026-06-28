@@ -34,6 +34,7 @@ _HTTP_OK_MIN = 200
 _HTTP_OK_MAX = 300
 _HTTP_UNAUTHORIZED = 401
 _HTTP_FORBIDDEN = 403
+_HTTP_NOT_FOUND = 404
 _HTTP_TOO_MANY_REQUESTS = 429
 _HTTP_SERVER_ERROR_MIN = 500
 _SENSITIVE_QUERY_PARAMS = frozenset(
@@ -167,6 +168,12 @@ def _raise_for_status(
         raise ProviderError(
             ErrorType.API_ERROR,
             "API key does not have access to this endpoint",
+            provider,
+        )
+    if status == _HTTP_NOT_FOUND:
+        raise ProviderError(
+            ErrorType.API_ERROR,
+            f"{provider} endpoint not found (404): {message}",
             provider,
         )
     if status == _HTTP_TOO_MANY_REQUESTS:

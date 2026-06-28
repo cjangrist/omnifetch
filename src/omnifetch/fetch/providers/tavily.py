@@ -7,8 +7,12 @@ from pydantic import BaseModel, ConfigDict, Field
 from omnifetch.fetch.providers.base import FetchProvider
 from omnifetch.fetch.shared.html import extract_markdown_title
 from omnifetch.fetch.shared.http import http_json
-from omnifetch.fetch.shared.types import FetchResult
-from omnifetch.fetch.shared.util import handle_provider_error, validate_api_key
+from omnifetch.fetch.shared.types import ErrorType, FetchResult, ProviderError
+from omnifetch.fetch.shared.util import (
+    handle_provider_error,
+    is_not_found_error_message,
+    validate_api_key,
+)
 
 _API_KEY_ENV_NAME = "TAVILY_API_KEY"
 _TIMEOUT_MS = 30_000
@@ -72,9 +76,14 @@ class TavilyFetchProvider(FetchProvider):
                 timeout_s=self.timeout_s,
             )
             if data.failed_results and not data.results:
-                raise ValueError(
-                    f"Tavily extraction failed: {data.failed_results[0].error}"
-                )
+                failed_error = data.failed_results[0].error
+                if is_not_found_error_message(failed_error, url):
+                    raise ProviderError(
+                        ErrorType.NOT_FOUND,
+                        f"Tavily extraction failed: {failed_error}",
+                        self.name,
+                    )
+                raise ValueError(f"Tavily extraction failed: {failed_error}")
 
             result = data.results[0] if data.results else None
             if result is None:
