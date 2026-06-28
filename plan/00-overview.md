@@ -191,11 +191,10 @@ omnifetch/                       repo root
 tree above — `shared/` = {types, html, util, config, http, observability};
 `engine/` = {failure, cache, waterfall, skip, concurrency, orchestrator, runtime};
 `providers/` = {base, registry, the 28 providers, `_youtube`, `kimi_proxy`,
-`github/`}. Most code sketches import via the short path
-`from omnifetch.fetch.X import …` for readability; the real module follows the tree
-(`omnifetch.fetch.<shared|engine|providers>.X`). The tree is authoritative for file
-locations — treat sketch import lines as illustrative; doc 11 (the concrete wiring)
-shows the fully-qualified imports.
+`github/`}. Code sketches throughout the docs use the **fully-qualified** nested
+import path (`from omnifetch.fetch.<shared|engine|providers>.X import …`) matching
+the tree. The slash-form short references (e.g. `fetch/http` in "Consumes" lines)
+are conceptual labels — resolve them via the same tree.
 
 Rationale: only **`providers/`** is file-heavy (28 providers + base + registry +
 the github subpackage); `shared/` (6 files) and `engine/` (7) stay small and flat,

@@ -156,7 +156,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import re
-from omnifetch.fetch.types import ErrorType, ProviderError
+from omnifetch.fetch.shared.types import ErrorType, ProviderError
 
 _CONTROL = re.compile(r"[\x00-\x1f\x7f]")
 _WRAPPING_QUOTES = re.compile(r"""^(['"])(.*)\1$""", re.DOTALL)

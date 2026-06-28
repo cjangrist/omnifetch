@@ -150,6 +150,21 @@ def register_tools(server: FastMCP, engine: Engine) -> None:
 `_REGISTRARS`-length test in `test_hello_tool.py:46-49` working — it asserts
 `len(tools) == len(_REGISTRARS)`.)
 
+**Existing-test migration (#7) — required, or the scaffold suite breaks.** Adding a
+second tool invalidates the scaffold's **index-based** assumptions; update these
+**with** this change (not after):
+- `tests/test_hello_tool.py:52-58` (`test_tool_metadata_is_advertised`) takes
+  `(await client.list_tools())[0]` and asserts it is "Say Hello" — **select by name**
+  instead: `next(t for t in tools if t.name == "say_hello")`. Tool order is **not**
+  guaranteed once two tools are registered.
+- `test_every_registrar_produces_a_tool` (`:46-49`, `len(tools)==len(_REGISTRARS)`)
+  stays valid (now `2 == 2`) — keep it.
+- `tests/test_schema_enforcement.py` — if it indexes `tools[0]`, switch to by-name.
+- `tests/test_main.py` — update for the new `build_server` (engine + client
+  construction) if it asserts the old signature.
+Keep `say_hello` (don't delete the demo tool); just make every assertion
+**order-independent**.
+
 ---
 
 ## 11.4 `fetch/engine/runtime.py` + `server.py` lifespan (httpx client lifecycle)
@@ -281,7 +296,9 @@ Reuses `_to_response` from §11.2 — **zero engine duplication**, the REST path
    `POST /fetch {"url": ...}` returns the same flattened `FetchResponse` JSON as the
    MCP tool (reusing `_to_response`); `OMNIFETCH_REST_FETCH=false` → route absent
    (404); error mapping matches `rest_fetch.ts` (429/404/400/502).
-10. `mypy --strict` + ruff clean; tool fn ≤45 lines (push mapping into `_to_response`).
+10. **Existing tests migrated (#7)**: `test_hello_tool.py` selects tools by **name**
+    (not index `[0]`); the full scaffold suite stays green after `fetch` is registered.
+11. `mypy --strict` + ruff clean; tool fn ≤45 lines (push mapping into `_to_response`).
 
 ## 11.7 Interfaces
 **Exposes:** `register_fetch_tool`, the toggleable `/fetch` REST route (#5),
