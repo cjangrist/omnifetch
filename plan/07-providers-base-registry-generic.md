@@ -65,7 +65,7 @@ base method — the request/response shapes differ too much to abstract cleanly.
 
 ---
 
-## 07.2 `fetch/registry.py` — registry + dispatcher + availability
+## 07.2 `fetch/providers/registry.py` — registry + dispatcher + availability
 
 Mirrors `unified/fetch.ts:41-107` and the init gating of `providers/index.ts`.
 

@@ -1,6 +1,6 @@
 # 01 — Foundations: types, errors, HTML titles, utilities
 
-> Package: `omnifetch/fetch/{types,html,util}.py`. These are **leaf modules** with
+> Package: `omnifetch/fetch/shared/{types,html,util}.py`. These are **leaf modules** with
 > no intra-engine dependencies — build them first; everything imports them.
 >
 > Source: `common/types.ts` (61), `common/html.ts` (14), `common/utils.ts` (167).
@@ -143,7 +143,7 @@ Port these (fetch-path-relevant); skip the search-only ones.
 | `make_signal(timeout_ms, external?)` | `:8-22` | `provider_timeout(...)` | reshaped to an `asyncio.timeout` ctx — see 02/14 |
 | `sanitize_for_log(s)` | `:34-35` | `sanitize_for_log` | strip control chars, slice 200 |
 | `create_error_response(err)` | `:122-133` | `create_error_response` | `{ "error": ... }` — used by tool error path |
-| `retry_with_backoff(fn, opts)` | `:142-166` | `retry_with_backoff` | **optional** (unused on fetch path); port for completeness only |
+| `retry_with_backoff(fn, opts)` | `:142-166` | thin wrapper over `tenacity` | **optional** — no provider uses it, and the http-layer transient retry (#7) already uses `tenacity` (`02` §02.2). If ever needed, build it on `tenacity`, don't re-port `p-retry`. |
 | `timing_safe_equal` / `authenticate_rest_request` | `:27-58` | optional | only if REST `/fetch` is ported (11). Use `hmac.compare_digest`. |
 
 ### Design (key functions)

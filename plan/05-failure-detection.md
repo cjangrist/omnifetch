@@ -1,4 +1,4 @@
-# 05 — Failure detection (`fetch/failure.py`)
+# 05 — Failure detection (`fetch/engine/failure.py`)
 
 > The gate that decides whether a provider's result counts as a **success** or a
 > **failure** (→ failover to the next provider). Cheap, pure, and on the hot path

@@ -7,7 +7,12 @@
 
 ---
 
-## 13.1 Test layout (mirror the engine)
+## 13.1 Test layout (mirrors the engine sub-packages)
+
+Group tests under `tests/fetch/{shared,engine,providers}/` to mirror the source
+layout (or keep them flat as below — the names are what matter). uvloop is **not**
+installed for tests (the suite runs on the stdlib loop, doc 14 §14.1); the
+Docker/compose checks (doc 15) are an out-of-unit CI job, not part of the 100% gate.
 
 ```
 tests/
@@ -32,7 +37,7 @@ tests/
     test_orchestrator.py      # 10  (waterfall, breakers, fast-fail, cache, exhaust)
     test_observability.py     # 12  (no-op default, otel-on, redaction, request-id correlation #9)
     test_invariants.py        # 02 §02.8  (#5 grep: no raw httpx/requests/urllib outside http.py; #6 no global client)
-  test_fetch_tool.py          # 11  (in-memory Client end-to-end)
+  test_fetch_tool.py          # 11  (in-memory Client e2e + REST /fetch toggle #5 + /health)
 ```
 
 ---

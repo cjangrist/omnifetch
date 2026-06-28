@@ -1,4 +1,4 @@
-# 04 — Provider configuration (`fetch/config.py` + extend `config.py`)
+# 04 — Provider configuration (`fetch/shared/config.py` + extend `config.py`)
 
 > Single source of truth for every provider's **API key env var, base URL, timeout,
 > and availability rule**. Mirrors `config/env.ts:136-283` (the `config.fetch`

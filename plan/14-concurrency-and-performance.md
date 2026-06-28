@@ -17,9 +17,27 @@
   mutated **only** by the single orchestrating coroutine — the `asyncio.wait` loop
   processes completed tasks one at a time — so they need **no lock**. Keep it that
   way: provider tasks must never touch `RaceContext` directly.
-- Prefer **`uvloop`** in production (`asyncio.set_event_loop_policy` or
-  `uvloop.run`) for a measurable event-loop speedup; keep it optional + behind the
-  CLI/`__main__` so tests run on the stdlib loop. (Stretch; not required.)
+- **Event loop: `uvloop` (default-on where available).** uvloop is a Cython/libuv
+  reimplementation of the asyncio loop; for this I/O-bound workload (many small
+  awaited HTTP round-trips, high request concurrency) it measurably cuts per-call
+  loop overhead and lifts throughput/tail latency under load — exactly its sweet
+  spot. Integrate it deliberately:
+  - **Where**: a small `install_uvloop()` in `__main__.main()` (doc 11), called
+    **before** `run_server()`. It runs `uvloop.install()` (sets the process-wide
+    asyncio policy) **iff** (a) `OMNIFETCH_UVLOOP` ≠ `off` (default `auto`), (b)
+    `sys.platform != "win32"` (uvloop is POSIX-only), and (c) the import succeeds —
+    else it logs and falls back silently to the stdlib selector loop. Log which loop
+    is active at startup (RULE_09 #1).
+  - **Transport interplay**: FastMCP creates the loop via anyio/uvicorn. Setting the
+    **policy** before `server.run()` means both stdio (`asyncio.run`) and HTTP
+    (uvicorn, which independently honors uvloop) pick it up. Do **not** call
+    `uvloop.run()` yourself — let FastMCP own loop creation; only set the policy.
+  - **Tests stay on the stdlib loop** (never install uvloop in `conftest`/pytest) so
+    semantics are portable and the 100% gate runs on every platform. uvloop is a
+    runtime *performance* choice, not a behavioral one — nothing in the engine
+    depends on it.
+  - Ship it as an **optional, POSIX-only** dependency (a `performance` extra,
+    §14.11). Absence is a silent no-op, never an error.
 
 ---
 
@@ -69,10 +87,12 @@ it is pending" warnings (pinned by a `-W error` test, doc 13 §13.3).
    `poll_job` loop (`supadata/index.ts:49-75`) and kimi's proxy round-trip. Without
    layer 2 a poll loop could outlive its budget.
 
-**Optional transient retry (#4) interacts with both layers.** The HTTP client can
-do a single bounded retry of a transient `PROVIDER_ERROR` (5xx/network) before the
-error propagates and the waterfall fails over (doc 02, default
-`OMNIFETCH_HTTP_TRANSIENT_RETRIES=0`). It retries **only** transient errors —
+**Optional transient retry (#4/#7) interacts with both layers.** The HTTP client can
+do a single bounded retry of a transient `PROVIDER_ERROR` (5xx/network) — via
+**`tenacity`**'s `AsyncRetrying` with a `retry_if_exception` predicate + jittered
+exponential backoff — before the error propagates and the waterfall fails over (doc
+02, default `OMNIFETCH_HTTP_TRANSIENT_RETRIES=0`). It retries **only** transient
+errors —
 never `RATE_LIMIT`/`API_ERROR`/`INVALID_INPUT`/`NOT_FOUND` — so it cannot subvert
 failover/fast-fail routing. Because each retry costs another `timeout_s + backoff`,
 **when retries are enabled, wrap the provider attempt in `provider_timeout(timeout_ms)`
@@ -215,11 +235,13 @@ Measurement harness (doc 13 can host it):
 ---
 
 ## 14.11 Consolidated dependency delta
-`pyproject.toml` `dependencies`: add **`httpx[http2]`** and **`py-key-value-aio`**
-(the backend-agnostic cache, doc 06 — `MemoryStore` needs no extras; `redis`/`disk`
-backends pull their own optional extras only when selected). No HTML/markdown lib;
-**no retry lib** (the bounded retry #4 is hand-rolled `asyncio`, not `tenacity`).
-`dev` group: add **`respx`** (httpx mocking) and **`fakeredis`** (the
-backend-agnostic cache test, doc 06 §06.5). Optionally `uvloop` (prod-only).
-Regenerate `uv.lock`. Everything else (pydantic, fastmcp, rich, logdecorator, OTEL
-extra) is already present.
+`pyproject.toml` `dependencies`: add **`httpx[http2]`**, **`py-key-value-aio`** (the
+backend-agnostic cache, doc 06 — `MemoryStore` needs no extras; `redis`/`disk`
+backends pull their own optional extras only when selected), and **`tenacity`** (the
+bounded transient retry #4/#7 — declarative `AsyncRetrying`, replaces a hand-rolled
+loop). No HTML/markdown lib. Add **`uvloop`** as an **optional, POSIX-only** runtime
+dep for the event loop (§14.1) — e.g. `[project.optional-dependencies] performance =
+["uvloop ; sys_platform != 'win32'"]`. `dev` group: add **`respx`** (httpx mocking)
+and **`fakeredis`** (backend-agnostic cache test, doc 06 §06.5). Regenerate
+`uv.lock`. Everything else (pydantic, fastmcp, rich, logdecorator, OTEL extra) is
+already present.

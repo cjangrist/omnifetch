@@ -1,4 +1,4 @@
-# 06 — Cache layer (`fetch/cache.py`)
+# 06 — Cache layer (`fetch/engine/cache.py`)
 
 > Re-targets Cloudflare KV (`fetch_orchestrator.ts:30-90`) to a **backend-agnostic**
 > cache via [`py-key-value`](https://github.com/strawgate/py-key-value)
