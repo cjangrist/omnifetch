@@ -28,7 +28,7 @@ def test_server_settings_have_explicit_environment_aliases() -> None:
         "OMNIFETCH_HTTP_LIMIT_PER_HOST",
         "OMNIFETCH_HTTP_TRANSIENT_RETRIES",
         "OMNIFETCH_UVLOOP",
-        "OMNIFETCH_REST_FETCH",
+        "OMNIFETCH_REST_WEB_FETCH",
     }
 
 
@@ -99,7 +99,7 @@ def test_server_settings_include_fetch_runtime_knobs(
     monkeypatch.setenv("OMNIFETCH_HTTP_LIMIT_PER_HOST", "7")
     monkeypatch.setenv("OMNIFETCH_HTTP_TRANSIENT_RETRIES", "1")
     monkeypatch.setenv("OMNIFETCH_UVLOOP", "off")
-    monkeypatch.setenv("OMNIFETCH_REST_FETCH", "false")
+    monkeypatch.setenv("OMNIFETCH_REST_WEB_FETCH", "false")
 
     settings = ServerSettings()
 
@@ -109,7 +109,7 @@ def test_server_settings_include_fetch_runtime_knobs(
     assert settings.http_limit_per_host == 7
     assert settings.http_transient_retries == 1
     assert settings.uvloop == "off"
-    assert settings.rest_fetch is False
+    assert settings.rest_web_fetch is False
     assert settings.http_settings() == HttpSettings(
         limit_per_host=7,
         transient_retries=1,
