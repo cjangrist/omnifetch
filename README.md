@@ -107,7 +107,7 @@ Register with an MCP client (e.g. Claude Code / Claude Desktop):
 | Input | `url: str` (required, 1–2000 chars), `skip_providers: str | list[str]` (optional) |
 | Output | `{ "url", "title", "content", "source_provider", "total_duration_ms", "metadata", "providers_attempted", "providers_failed", "alternative_results" }` (schema-enforced) |
 | Hints | `readOnlyHint`, `idempotentHint`, `openWorldHint` |
-| Providers | Tavily and Firecrawl are callable when their provider-native secret is configured. |
+| Providers | Tavily, Firecrawl, and Supadata are callable when their provider-native secret is configured. |
 
 ## Configuration
 
