@@ -14,6 +14,7 @@ from typing import Any, overload, TypeVar
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 import httpx
+from httpx._types import QueryParamTypes
 from pydantic import BaseModel
 from tenacity import (
     AsyncRetrying,
@@ -51,6 +52,7 @@ class _RequestOptions:
 
     method: str = "GET"
     headers: dict[str, str] | None = None
+    params: QueryParamTypes | None = None
     content: str | bytes | None = None
     json: Any = None
     timeout_s: float | None = None
@@ -209,6 +211,7 @@ async def _do_request(
             options.method,
             url,
             headers=options.headers,
+            params=options.params,
             content=options.content,
             json=options.json,
             timeout=timeout,
