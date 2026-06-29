@@ -1,7 +1,7 @@
 """Command-line entry point for the Omnifetch MCP server.
 
-Bootstrap order: dotenv → config → logging → telemetry → serve. Run with
-``python -m omnifetch`` or the installed ``omnifetch`` console script.
+Bootstrap order: dotenv → config → logging → uvloop → telemetry → serve. Run
+with ``python -m omnifetch`` or the installed ``omnifetch`` console script.
 """
 
 from __future__ import annotations
@@ -11,7 +11,7 @@ from collections.abc import Sequence
 
 from dotenv import load_dotenv
 
-from omnifetch.config import AppConfig, load_config
+from omnifetch.config import AppConfig, load_config, UvloopModeName
 from omnifetch.logging import configure_logging, get_logger
 from omnifetch.telemetry import configure_telemetry
 
@@ -88,6 +88,19 @@ def run_server(config: AppConfig) -> None:
         )
 
 
+def install_uvloop(mode: UvloopModeName) -> bool:
+    """Install uvloop's event-loop policy unless explicitly disabled."""
+    if mode == "off":
+        _LOGGER.info("Using the default asyncio event loop.")
+        return False
+
+    import uvloop
+
+    uvloop.install()
+    _LOGGER.info("Installed uvloop event-loop policy.")
+    return True
+
+
 def main(argv: Sequence[str] | None = None) -> None:
     """Load ``.env`` via dotenv, configure the runtime, and start serving."""
     load_dotenv()
@@ -95,6 +108,7 @@ def main(argv: Sequence[str] | None = None) -> None:
     config = load_config(**collect_overrides(args))
     configure_logging(config.server.log_level)
     _LOGGER.debug("Configuration loaded: %r.", config)
+    install_uvloop(config.server.uvloop)
     configure_telemetry(config.telemetry)
     run_server(config)
 
