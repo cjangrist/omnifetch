@@ -20,7 +20,7 @@ from omnifetch.fetch.engine.skip import (
     parse_skip_providers,
     validate_skip_providers,
 )
-from omnifetch.fetch.shared.types import ProviderError
+from omnifetch.fetch.shared.types import ErrorType, ProviderError
 from omnifetch.logging import get_logger
 from omnifetch.schemas import (
     FetchAlternative,
@@ -62,9 +62,11 @@ def _parse_valid_skip_providers(
 
     valid, unknown = validate_skip_providers(parsed, active_names)
     if unknown:
-        raise ToolError(
+        raise ProviderError(
+            ErrorType.INVALID_INPUT,
             f"Unknown skip_providers names: {', '.join(unknown)}. "
-            f"Valid: {', '.join(active_names)}"
+            f"Valid: {', '.join(active_names)}",
+            "fetch",
         )
     return valid
 
@@ -114,6 +116,27 @@ def _to_response(race: FetchRaceResult) -> FetchResponse:
     )
 
 
+async def execute_fetch(
+    engine: Engine,
+    url: str,
+    *,
+    provider: str | None = None,
+    skip_providers: str | list[str] | None = None,
+) -> FetchResponse:
+    """Fetch a URL through the shared engine and return a flat response."""
+    skip = _parse_valid_skip_providers(
+        skip_providers,
+        engine.unified.active_names,
+    )
+    race = await run_fetch_race(
+        engine.unified,
+        url,
+        provider=provider,
+        skip_providers=skip,
+    )
+    return _to_response(race)
+
+
 def register_fetch_tool(server: FastMCP, engine: Engine) -> None:
     """Register the ``fetch`` tool on the given FastMCP server."""
 
@@ -132,19 +155,14 @@ def register_fetch_tool(server: FastMCP, engine: Engine) -> None:
         skip_providers: SkipProviders = None,
         ctx: Context | None = None,
     ) -> FetchResponse:
-        skip = _parse_valid_skip_providers(
-            skip_providers,
-            engine.unified.active_names,
-        )
         try:
-            race = await run_fetch_race(
-                engine.unified,
+            return await execute_fetch(
+                engine,
                 url,
-                skip_providers=skip,
+                skip_providers=skip_providers,
             )
         except ProviderError as error:
             raise ToolError(str(error)) from error
-        return _to_response(race)
 
     server.tool(
         name=_TOOL_NAME,
