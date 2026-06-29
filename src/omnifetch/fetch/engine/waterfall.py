@@ -10,6 +10,8 @@ from dataclasses import dataclass
 from typing import Literal
 from urllib.parse import urlsplit
 
+from omnifetch.fetch.shared.youtube import YOUTUBE_DOMAINS
+
 
 @dataclass(frozen=True, slots=True)
 class Breaker:
@@ -41,7 +43,7 @@ BREAKERS: tuple[Breaker, ...] = (
     Breaker(
         name="youtube",
         provider="supadata",
-        domains=("youtube.com", "youtu.be"),
+        domains=YOUTUBE_DOMAINS,
     ),
     Breaker(
         name="social_media",

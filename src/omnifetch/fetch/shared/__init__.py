@@ -21,8 +21,14 @@ from omnifetch.fetch.shared.util import (
     timing_safe_equal,
     validate_api_key,
 )
+from omnifetch.fetch.shared.youtube import (
+    extract_youtube_video_id,
+    is_youtube_hostname,
+    YOUTUBE_DOMAINS,
+)
 
 __all__ = [
+    "YOUTUBE_DOMAINS",
     "ErrorType",
     "FetchResult",
     "HttpSettings",
@@ -32,12 +38,14 @@ __all__ = [
     "create_error_response",
     "extract_html_title",
     "extract_markdown_title",
+    "extract_youtube_video_id",
     "handle_provider_error",
     "handle_rate_limit",
     "hash_key",
     "http_json",
     "http_raw",
     "http_text",
+    "is_youtube_hostname",
     "provider_timeout",
     "retry_with_backoff",
     "sanitize_for_log",
