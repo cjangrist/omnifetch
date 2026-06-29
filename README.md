@@ -102,7 +102,7 @@ precedence.
 | `OMNIFETCH_DISK_CACHE_PATH` | `.cache/omnifetch` | Disk cache path when `OMNIFETCH_CACHE_BACKEND=disk` |
 | `OMNIFETCH_HTTP_LIMIT_PER_HOST` | `20` | Per-host async HTTP concurrency cap |
 | `OMNIFETCH_HTTP_TRANSIENT_RETRIES` | `0` | Transient fetch HTTP retries before provider failover |
-| `OMNIFETCH_UVLOOP` | `auto` | `auto`, `on`, or `off` runtime loop selection |
+| `OMNIFETCH_UVLOOP` | `auto` | `auto`/`on` installs uvloop; `off` keeps the default asyncio loop |
 | `OMNIFETCH_REST_WEB_FETCH` | `true` | Enable the HTTP `/web_fetch` convenience route |
 | `OTEL_TRACES_EXPORTER` | _(empty)_ | `console` or `otlp` to **enable** tracing |
 | `OTEL_SERVICE_NAME` | `omnifetch-mcp` | Service name in traces |
