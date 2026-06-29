@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass
-from urllib.parse import parse_qs, urlencode, urlsplit
+from urllib.parse import urlencode
 
 import httpx
 from pydantic import AliasChoices, BaseModel, ConfigDict, Field
@@ -13,12 +13,12 @@ from omnifetch.fetch.providers.base import FetchProvider
 from omnifetch.fetch.shared.http import http_json, http_raw
 from omnifetch.fetch.shared.types import ErrorType, FetchResult, ProviderError
 from omnifetch.fetch.shared.util import handle_provider_error, validate_api_key
+from omnifetch.fetch.shared.youtube import extract_youtube_video_id
 
 _API_KEY_ENV_NAME = "SUPADATA_API_KEY"
 _TIMEOUT_MS = 60_000
 _POLL_TIMEOUT_S = 10.0
 _POLL_INTERVAL_S = 1.5
-_MIN_VIDEO_PATH_PARTS = 2
 _HTTP_ACCEPTED = 202
 
 
@@ -60,34 +60,6 @@ class _SupadataRequest:
     api_key: str
     base_url: str
     timeout_ms: int
-
-
-def _extract_video_id(url: str) -> str | None:
-    """Return the YouTube video ID embedded in ``url``, if present."""
-    try:
-        parsed = urlsplit(url)
-    except ValueError:
-        return None
-
-    hostname = (parsed.hostname or "").lower().removeprefix("www.")
-    if hostname == "youtu.be":
-        video_id = parsed.path.lstrip("/").split("/", 1)[0]
-        return video_id or None
-    if hostname not in {"youtube.com", "m.youtube.com"}:
-        return None
-
-    query_video_ids = parse_qs(parsed.query).get("v", [])
-    if query_video_ids and query_video_ids[0]:
-        return query_video_ids[0]
-
-    path_parts = tuple(part for part in parsed.path.split("/") if part)
-    if len(path_parts) >= _MIN_VIDEO_PATH_PARTS and path_parts[0] in {
-        "embed",
-        "shorts",
-        "live",
-    }:
-        return path_parts[1]
-    return None
 
 
 async def _poll_job(request: _SupadataRequest, job_id: str) -> str:
@@ -158,7 +130,7 @@ class SupadataFetchProvider(FetchProvider):
             self._secrets.get(_API_KEY_ENV_NAME),
             self.name,
         )
-        video_id = _extract_video_id(url)
+        video_id = extract_youtube_video_id(url)
         if video_id is None:
             raise ProviderError(
                 ErrorType.INVALID_INPUT,

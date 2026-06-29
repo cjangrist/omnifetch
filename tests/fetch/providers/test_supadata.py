@@ -9,9 +9,11 @@ import pytest
 import respx
 
 import omnifetch.fetch.providers.supadata as supadata_module
+import omnifetch.fetch.providers.tavily as tavily_module
+from omnifetch.fetch.engine.race import run_fetch_race
 from omnifetch.fetch.providers import base, get_active_fetch_providers
+from omnifetch.fetch.providers.registry import UnifiedFetchProvider
 from omnifetch.fetch.providers.supadata import (
-    _extract_video_id,
     _poll_job,
     _SupadataRequest,
     SupadataFetchProvider,
@@ -22,26 +24,7 @@ from omnifetch.fetch.shared.types import ErrorType, FetchResult, ProviderError
 _TRANSCRIPT_URL = "https://api.supadata.ai/v1/transcript"
 _POLL_URL = "https://api.supadata.ai/v1/transcript/job-1"
 _YOUTUBE_URL = "https://www.youtube.com/watch?v=abc123"
-
-
-@pytest.mark.parametrize(
-    ("url", "video_id"),
-    [
-        ("https://youtu.be/abc123", "abc123"),
-        ("https://youtu.be/abc123?t=3", "abc123"),
-        ("https://youtu.be/", None),
-        ("https://www.youtube.com/watch?v=abc123", "abc123"),
-        ("https://m.youtube.com/watch?v=mobile123", "mobile123"),
-        ("https://youtube.com/embed/embed123?autoplay=1", "embed123"),
-        ("https://youtube.com/shorts/short123", "short123"),
-        ("https://youtube.com/live/live123", "live123"),
-        ("https://youtube.com/channel/channel123", None),
-        ("https://example.test/watch?v=abc123", None),
-        ("http://[", None),
-    ],
-)
-def test_extract_video_id(url: str, video_id: str | None) -> None:
-    assert _extract_video_id(url) == video_id
+_MUSIC_YOUTUBE_URL = "https://music.youtube.com/watch?v=music123"
 
 
 async def test_supadata_fetches_transcript() -> None:
@@ -194,6 +177,36 @@ async def test_supadata_poll_timeout() -> None:
                 ),
                 "job-1",
             )
+
+
+async def test_youtube_breaker_routes_to_supadata_before_tavily(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(base, "_REGISTRY", {})
+    importlib.reload(supadata_module)
+    importlib.reload(tavily_module)
+
+    with respx.mock(assert_all_called=True) as router:
+        router.get(_TRANSCRIPT_URL).respond(
+            200,
+            json={"content": "Breaker transcript"},
+        )
+        async with httpx.AsyncClient() as client:
+            unified = UnifiedFetchProvider(
+                ProviderSecrets(
+                    {
+                        "SUPADATA_API_KEY": "supadata-secret",
+                        "TAVILY_API_KEY": "tavily-secret",
+                    }
+                ),
+                client,
+            )
+            result = await run_fetch_race(unified, _MUSIC_YOUTUBE_URL)
+
+    assert result.provider_used == "supadata"
+    assert result.providers_attempted == ("supadata",)
+    assert result.result.title == "YouTube Transcript: music123"
+    assert result.result.source_provider == "supadata"
 
 
 def test_supadata_registers_and_gates(
