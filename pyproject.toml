@@ -96,7 +96,7 @@ ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
 # logdecorator's decorators are untyped; permit them in the tool module only.
-module = ["omnifetch.tools.hello"]
+module = ["omnifetch.tools.fetch", "omnifetch.tools.hello"]
 disallow_untyped_decorators = false
 
 [tool.ruff]

@@ -68,6 +68,15 @@ Register with an MCP client (e.g. Claude Code / Claude Desktop):
 | Output | `{ "message": "Hello, <name>!" }` (schema-enforced) |
 | Hints | `readOnlyHint`, `idempotentHint`, `openWorldHint=false` |
 
+### Tool: `fetch`
+
+| | |
+|---|---|
+| Input | `url: str` (required, 1–2000 chars), `skip_providers: str | list[str]` (optional) |
+| Output | `{ "url", "title", "content", "source_provider", "total_duration_ms", "metadata", "providers_attempted", "providers_failed", "alternative_results" }` (schema-enforced) |
+| Hints | `readOnlyHint`, `idempotentHint`, `openWorldHint` |
+| Providers | Tavily and Firecrawl are callable when their provider-native secret is configured. |
+
 ## Configuration
 
 Copy `.env.example` to `.env` (loaded via `python-dotenv`); real environment variables take
@@ -154,7 +163,8 @@ CI runs the same gate, the test matrix, a `pip-audit` scan, and a provenance-sig
 ### Adding a tool
 
 1. Add `src/omnifetch/tools/<name>.py` with an `async` function returning a Pydantic model,
-   plus a `register_<name>_tool(server)` helper — copy `tools/hello.py`.
+   plus a `register_<name>_tool(server, engine)` helper — copy `tools/hello.py` for
+   server-only tools or `tools/fetch.py` for tools that need runtime dependencies.
 2. Append that registrar to `_REGISTRARS` in `tools/__init__.py`.
 3. Add tests. `uv run pytest` enforces that every tool has an input and output schema.
 

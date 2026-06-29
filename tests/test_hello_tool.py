@@ -3,15 +3,23 @@
 from __future__ import annotations
 
 import logging
+from typing import cast
 
 import pytest
 from fastmcp import Client, FastMCP
 from fastmcp.client.transports import FastMCPTransport
 from fastmcp.exceptions import ToolError
+from mcp.types import Tool
 
 from omnifetch.schemas import HelloResponse
 from omnifetch.tools import _REGISTRARS
 from omnifetch.tools.hello import say_hello
+
+
+async def _tool_by_name(mcp_server: FastMCP, name: str) -> Tool:
+    async with Client(FastMCPTransport(mcp_server)) as client:
+        tools = cast(list[Tool], await client.list_tools())
+    return next(tool for tool in tools if tool.name == name)
 
 
 async def test_default_greeting_is_hello_world(mcp_server: FastMCP) -> None:
@@ -50,8 +58,7 @@ async def test_every_registrar_produces_a_tool(mcp_server: FastMCP) -> None:
 
 
 async def test_tool_metadata_is_advertised(mcp_server: FastMCP) -> None:
-    async with Client(FastMCPTransport(mcp_server)) as client:
-        tool = (await client.list_tools())[0]
+    tool = await _tool_by_name(mcp_server, "say_hello")
     assert tool.title == "Say Hello"
     assert tool.annotations is not None
     assert tool.annotations.readOnlyHint is True

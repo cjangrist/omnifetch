@@ -13,6 +13,7 @@ from omnifetch.fetch.engine.race import (
     ProviderAttemptFailure,
     run_fetch_race,
 )
+from omnifetch.fetch.engine.runtime import Engine
 from omnifetch.fetch.engine.skip import (
     parse_skip_providers,
     validate_skip_providers,
@@ -30,6 +31,7 @@ __all__ = [
     "WATERFALL_STEPS",
     "AlternativeFetchResult",
     "Breaker",
+    "Engine",
     "FetchDispatcher",
     "FetchRaceResult",
     "ProviderAttemptFailure",
