@@ -23,7 +23,7 @@ from omnifetch.fetch.providers.registry import UnifiedFetchProvider
 from omnifetch.fetch.shared.types import ErrorType, ProviderError
 from omnifetch.logging import get_logger
 from omnifetch.tools import register_tools
-from omnifetch.tools.fetch import execute_fetch
+from omnifetch.tools.fetch import execute_web_fetch
 
 _LOGGER = get_logger("server")
 
@@ -119,7 +119,7 @@ def register_http_routes(
     server: FastMCP,
     engine: Engine,
     *,
-    rest_fetch_enabled: bool,
+    rest_web_fetch_enabled: bool,
 ) -> None:
     """Register custom HTTP routes on the FastMCP server."""
 
@@ -132,11 +132,13 @@ def register_http_routes(
             }
         )
 
-    if not rest_fetch_enabled:
+    if not rest_web_fetch_enabled:
         return
 
-    @server.custom_route("/fetch", methods=["POST"], include_in_schema=False)
-    async def rest_fetch(request: Request) -> Response:
+    @server.custom_route(
+        "/web_fetch", methods=["POST"], include_in_schema=False
+    )
+    async def rest_web_fetch(request: Request) -> Response:
         payload = await _request_json_object(request)
         if isinstance(payload, Response):
             return payload
@@ -147,7 +149,7 @@ def register_http_routes(
         if isinstance(provider, Response):
             return provider
         try:
-            response = await execute_fetch(
+            response = await execute_web_fetch(
                 engine,
                 url,
                 provider=provider,
@@ -190,7 +192,7 @@ def build_server(config: AppConfig | None = None) -> FastMCP:
     register_http_routes(
         server,
         engine,
-        rest_fetch_enabled=app_config.server.rest_fetch,
+        rest_web_fetch_enabled=app_config.server.rest_web_fetch,
     )
     _LOGGER.info("Server %r ready.", _NAME)
     return server

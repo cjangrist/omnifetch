@@ -1,4 +1,4 @@
-"""The ``fetch`` tool: multi-provider URL to markdown waterfall."""
+"""The ``web_fetch`` tool: multi-provider URL to markdown waterfall."""
 
 from __future__ import annotations
 
@@ -32,8 +32,8 @@ from omnifetch.schemas import (
 
 _LOGGER = get_logger("tools.fetch")
 
-_TOOL_NAME = "fetch"
-_TOOL_TITLE = "URL Fetch (multi-provider waterfall)"
+_TOOL_NAME = "web_fetch"
+_TOOL_TITLE = "Web Fetch (multi-provider waterfall)"
 _TOOL_DESCRIPTION = (
     "Fetch clean markdown from a public URL through the multi-provider "
     "waterfall. If returned content is missing, incomplete, or wrong for the "
@@ -66,7 +66,7 @@ def _parse_valid_skip_providers(
             ErrorType.INVALID_INPUT,
             f"Unknown skip_providers names: {', '.join(unknown)}. "
             f"Valid: {', '.join(active_names)}",
-            "fetch",
+            _TOOL_NAME,
         )
     return valid
 
@@ -116,7 +116,7 @@ def _to_response(race: FetchRaceResult) -> FetchResponse:
     )
 
 
-async def execute_fetch(
+async def execute_web_fetch(
     engine: Engine,
     url: str,
     *,
@@ -137,8 +137,8 @@ async def execute_fetch(
     return _to_response(race)
 
 
-def register_fetch_tool(server: FastMCP, engine: Engine) -> None:
-    """Register the ``fetch`` tool on the given FastMCP server."""
+def register_web_fetch_tool(server: FastMCP, engine: Engine) -> None:
+    """Register the ``web_fetch`` tool on the given FastMCP server."""
 
     @async_log_on_start(
         logging.INFO,
@@ -150,13 +150,13 @@ def register_fetch_tool(server: FastMCP, engine: Engine) -> None:
         "Tool exit: {callable.__name__}",
         logger=_LOGGER,
     )
-    async def fetch(
+    async def web_fetch(
         url: FetchUrl,
         skip_providers: SkipProviders = None,
         ctx: Context | None = None,
     ) -> FetchResponse:
         try:
-            return await execute_fetch(
+            return await execute_web_fetch(
                 engine,
                 url,
                 skip_providers=skip_providers,
@@ -169,4 +169,4 @@ def register_fetch_tool(server: FastMCP, engine: Engine) -> None:
         title=_TOOL_TITLE,
         description=_TOOL_DESCRIPTION,
         annotations=_TOOL_ANNOTATIONS,
-    )(fetch)
+    )(web_fetch)

@@ -54,7 +54,7 @@ HTTP transport also exposes:
 
 ```bash
 curl -s http://127.0.0.1:8000/health
-curl -s http://127.0.0.1:8000/fetch \
+curl -s http://127.0.0.1:8000/web_fetch \
   -H 'content-type: application/json' \
   -d '{"url":"https://example.com"}'
 ```
@@ -77,7 +77,7 @@ Register with an MCP client (e.g. Claude Code / Claude Desktop):
 | Output | `{ "message": "Hello, <name>!" }` (schema-enforced) |
 | Hints | `readOnlyHint`, `idempotentHint`, `openWorldHint=false` |
 
-### Tool: `fetch`
+### Tool: `web_fetch`
 
 | | |
 |---|---|
@@ -103,7 +103,7 @@ precedence.
 | `OMNIFETCH_HTTP_LIMIT_PER_HOST` | `20` | Per-host async HTTP concurrency cap |
 | `OMNIFETCH_HTTP_TRANSIENT_RETRIES` | `0` | Transient fetch HTTP retries before provider failover |
 | `OMNIFETCH_UVLOOP` | `auto` | `auto`, `on`, or `off` runtime loop selection |
-| `OMNIFETCH_REST_FETCH` | `true` | Enable the HTTP `/fetch` convenience route |
+| `OMNIFETCH_REST_WEB_FETCH` | `true` | Enable the HTTP `/web_fetch` convenience route |
 | `OTEL_TRACES_EXPORTER` | _(empty)_ | `console` or `otlp` to **enable** tracing |
 | `OTEL_SERVICE_NAME` | `omnifetch-mcp` | Service name in traces |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | _(empty)_ | OTLP collector endpoint |

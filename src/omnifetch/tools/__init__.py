@@ -13,7 +13,7 @@ from fastmcp import FastMCP
 
 from omnifetch.fetch.engine.runtime import Engine
 from omnifetch.logging import get_logger
-from omnifetch.tools.fetch import register_fetch_tool
+from omnifetch.tools.fetch import register_web_fetch_tool
 from omnifetch.tools.hello import register_hello_tool
 
 _LOGGER = get_logger("tools")
@@ -26,7 +26,7 @@ def _register_hello_tool(server: FastMCP, _engine: Engine) -> None:
 
 _REGISTRARS: tuple[Callable[[FastMCP, Engine], None], ...] = (
     _register_hello_tool,
-    register_fetch_tool,
+    register_web_fetch_tool,
 )
 
 

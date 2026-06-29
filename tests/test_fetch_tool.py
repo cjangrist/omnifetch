@@ -1,4 +1,4 @@
-"""Behavioral tests for the ``fetch`` tool via the in-memory client."""
+"""Behavioral tests for the ``web_fetch`` tool via the in-memory client."""
 
 from __future__ import annotations
 
@@ -24,7 +24,7 @@ from omnifetch.fetch.engine.race import (
 from omnifetch.fetch.engine.runtime import Engine
 from omnifetch.fetch.shared.types import ErrorType, FetchResult, ProviderError
 from omnifetch.server import build_server
-from omnifetch.tools.fetch import register_fetch_tool
+from omnifetch.tools.fetch import register_web_fetch_tool
 
 
 class _FakeDispatcher:
@@ -62,22 +62,22 @@ def _fake_tool_server(
     client = httpx.AsyncClient()
     engine = Engine(unified=_FakeDispatcher(active_names), client=client)
     server = FastMCP(
-        name="test-fetch",
+        name="test-web-fetch",
         strict_input_validation=True,
         mask_error_details=True,
     )
-    register_fetch_tool(server, engine)
+    register_web_fetch_tool(server, engine)
     return server, client
 
 
-async def test_fetch_tool_metadata_is_registered(
+async def test_web_fetch_tool_metadata_is_registered(
     mcp_server: FastMCP,
 ) -> None:
     async with Client(FastMCPTransport(mcp_server)) as client:
         tools = await client.list_tools()
 
-    tool = next(item for item in tools if item.name == "fetch")
-    assert tool.title == "URL Fetch (multi-provider waterfall)"
+    tool = next(item for item in tools if item.name == "web_fetch")
+    assert tool.title == "Web Fetch (multi-provider waterfall)"
     assert tool.annotations is not None
     assert tool.annotations.readOnlyHint is True
     assert tool.annotations.idempotentHint is True
@@ -85,7 +85,7 @@ async def test_fetch_tool_metadata_is_registered(
     assert tool.annotations.destructiveHint is False
 
 
-async def test_fetch_tool_fetches_with_tavily(
+async def test_web_fetch_tool_fetches_with_tavily(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv("TAVILY_API_KEY", "tavily-secret")
@@ -105,7 +105,7 @@ async def test_fetch_tool_fetches_with_tavily(
         server = build_server(load_config())
         async with Client(FastMCPTransport(server)) as client:
             result = await client.call_tool(
-                "fetch",
+                "web_fetch",
                 {"url": "https://example.test/article"},
             )
 
@@ -118,7 +118,7 @@ async def test_fetch_tool_fetches_with_tavily(
     assert result.data.alternative_results is None
 
 
-async def test_fetch_tool_skips_tavily_and_uses_firecrawl(
+async def test_web_fetch_tool_skips_tavily_and_uses_firecrawl(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv("TAVILY_API_KEY", "tavily-secret")
@@ -139,7 +139,7 @@ async def test_fetch_tool_skips_tavily_and_uses_firecrawl(
         server = build_server(load_config())
         async with Client(FastMCPTransport(server)) as client:
             result = await client.call_tool(
-                "fetch",
+                "web_fetch",
                 {
                     "url": "https://example.test/article",
                     "skip_providers": "tavily",
@@ -165,7 +165,7 @@ def test_health_route_reports_active_provider_count(
     assert response.json() == {"status": "ok", "providers": 1}
 
 
-def test_rest_fetch_returns_tavily_response(
+def test_rest_web_fetch_returns_tavily_response(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv("TAVILY_API_KEY", "tavily-secret")
@@ -185,7 +185,7 @@ def test_rest_fetch_returns_tavily_response(
         server = build_server(load_config(transport="http"))
         with TestClient(server.http_app(transport="http")) as client:
             response = client.post(
-                "/fetch",
+                "/web_fetch",
                 json={"url": "https://example.test/article"},
             )
 
@@ -195,7 +195,7 @@ def test_rest_fetch_returns_tavily_response(
     assert response.json()["providers_attempted"] == ["tavily"]
 
 
-def test_rest_fetch_uses_explicit_provider(
+def test_rest_web_fetch_uses_explicit_provider(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv("TAVILY_API_KEY", "tavily-secret")
@@ -210,7 +210,7 @@ def test_rest_fetch_uses_explicit_provider(
         server = build_server(load_config(transport="http"))
         with TestClient(server.http_app(transport="http")) as client:
             response = client.post(
-                "/fetch",
+                "/web_fetch",
                 json={
                     "url": "https://example.test/article",
                     "provider": "firecrawl",
@@ -222,21 +222,21 @@ def test_rest_fetch_uses_explicit_provider(
     assert response.json()["providers_attempted"] == ["firecrawl"]
 
 
-def test_rest_fetch_can_be_disabled(
+def test_rest_web_fetch_can_be_disabled(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv("TAVILY_API_KEY", "tavily-secret")
-    server = build_server(load_config(transport="http", rest_fetch=False))
+    server = build_server(load_config(transport="http", rest_web_fetch=False))
 
     with TestClient(server.http_app(transport="http")) as client:
         health_response = client.get("/health")
-        fetch_response = client.post(
-            "/fetch",
+        web_fetch_response = client.post(
+            "/web_fetch",
             json={"url": "https://example.test/article"},
         )
 
     assert health_response.status_code == 200
-    assert fetch_response.status_code == 404
+    assert web_fetch_response.status_code == 404
 
 
 @pytest.mark.parametrize(
@@ -262,14 +262,14 @@ def test_rest_fetch_can_be_disabled(
         ),
     ],
 )
-def test_rest_fetch_rejects_invalid_payload(
+def test_rest_web_fetch_rejects_invalid_payload(
     payload: dict[str, object],
     message: str,
 ) -> None:
     server = build_server(load_config(transport="http"))
 
     with TestClient(server.http_app(transport="http")) as client:
-        response = client.post("/fetch", json=payload)
+        response = client.post("/web_fetch", json=payload)
 
     assert response.status_code == 400
     assert response.json() == {"error": message}
@@ -282,7 +282,7 @@ def test_rest_fetch_rejects_invalid_payload(
         (b"[]", "request body must be a JSON object"),
     ],
 )
-def test_rest_fetch_rejects_invalid_json_body(
+def test_rest_web_fetch_rejects_invalid_json_body(
     content: bytes,
     expected: str,
 ) -> None:
@@ -290,7 +290,7 @@ def test_rest_fetch_rejects_invalid_json_body(
 
     with TestClient(server.http_app(transport="http")) as client:
         response = client.post(
-            "/fetch",
+            "/web_fetch",
             content=content,
             headers={"content-type": "application/json"},
         )
@@ -299,7 +299,7 @@ def test_rest_fetch_rejects_invalid_json_body(
     assert response.json() == {"error": expected}
 
 
-def test_rest_fetch_maps_unknown_skip_provider_to_bad_request(
+def test_rest_web_fetch_maps_unknown_skip_provider_to_bad_request(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv("TAVILY_API_KEY", "tavily-secret")
@@ -307,7 +307,7 @@ def test_rest_fetch_maps_unknown_skip_provider_to_bad_request(
 
     with TestClient(server.http_app(transport="http")) as client:
         response = client.post(
-            "/fetch",
+            "/web_fetch",
             json={
                 "url": "https://example.test/article",
                 "skip_providers": "bogus",
@@ -333,12 +333,12 @@ def test_provider_errors_map_to_rest_status_codes(
     error_type: ErrorType,
     expected_status: int,
 ) -> None:
-    error = ProviderError(error_type, "provider failed", "fetch")
+    error = ProviderError(error_type, "provider failed", "web_fetch")
 
     assert server_module._status_for_provider_error(error) == expected_status
 
 
-async def test_fetch_tool_rejects_unknown_skip_provider(
+async def test_web_fetch_tool_rejects_unknown_skip_provider(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv("TAVILY_API_KEY", "tavily-secret")
@@ -349,7 +349,7 @@ async def test_fetch_tool_rejects_unknown_skip_provider(
             match="Unknown skip_providers names: bogus",
         ):
             await client.call_tool(
-                "fetch",
+                "web_fetch",
                 {
                     "url": "https://example.test/article",
                     "skip_providers": "bogus",
@@ -357,7 +357,7 @@ async def test_fetch_tool_rejects_unknown_skip_provider(
             )
 
 
-async def test_fetch_tool_flattens_alternative_results(
+async def test_web_fetch_tool_flattens_alternative_results(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     calls: list[tuple[str, tuple[str, ...]]] = []
@@ -390,7 +390,7 @@ async def test_fetch_tool_flattens_alternative_results(
     try:
         async with Client(FastMCPTransport(server)) as mcp_client:
             result = await mcp_client.call_tool(
-                "fetch",
+                "web_fetch",
                 {
                     "url": "https://example.test/article",
                     "skip_providers": ["TAVILY"],
@@ -407,7 +407,7 @@ async def test_fetch_tool_flattens_alternative_results(
     assert result.data.alternative_results[0].source_provider == "kimi"
 
 
-async def test_fetch_tool_surfaces_provider_errors(
+async def test_web_fetch_tool_surfaces_provider_errors(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     async def fake_run_fetch_race(
@@ -429,14 +429,14 @@ async def test_fetch_tool_surfaces_provider_errors(
         async with Client(FastMCPTransport(server)) as mcp_client:
             with pytest.raises(ToolError, match="All providers failed"):
                 await mcp_client.call_tool(
-                    "fetch",
+                    "web_fetch",
                     {"url": "https://example.test/article"},
                 )
     finally:
         await client.aclose()
 
 
-async def test_fetch_tool_logs_url_without_content(
+async def test_web_fetch_tool_logs_url_without_content(
     monkeypatch: pytest.MonkeyPatch,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
@@ -464,14 +464,14 @@ async def test_fetch_tool_logs_url_without_content(
         with caplog.at_level(logging.INFO, logger="omnifetch.tools.fetch"):
             async with Client(FastMCPTransport(server)) as mcp_client:
                 await mcp_client.call_tool(
-                    "fetch",
+                    "web_fetch",
                     {"url": "https://example.test/article"},
                 )
     finally:
         await client.aclose()
 
     messages = [record.getMessage() for record in caplog.records]
-    assert any("fetch" in message for message in messages)
+    assert any("web_fetch" in message for message in messages)
     assert any(
         "https://example.test/article" in message for message in messages
     )

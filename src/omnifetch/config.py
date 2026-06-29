@@ -61,8 +61,8 @@ class ServerSettings(BaseSettings):
     uvloop: UvloopModeName = Field(
         default="auto", validation_alias="OMNIFETCH_UVLOOP"
     )
-    rest_fetch: bool = Field(
-        default=True, validation_alias="OMNIFETCH_REST_FETCH"
+    rest_web_fetch: bool = Field(
+        default=True, validation_alias="OMNIFETCH_REST_WEB_FETCH"
     )
 
     def http_settings(self) -> HttpSettings:

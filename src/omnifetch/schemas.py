@@ -88,7 +88,7 @@ class FetchAlternative(BaseModel):
 
 
 class FetchResponse(BaseModel):
-    """Structured result returned by the ``fetch`` tool."""
+    """Structured result returned by the ``web_fetch`` tool."""
 
     model_config = ConfigDict(extra="forbid")
 
