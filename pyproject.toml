@@ -66,6 +66,9 @@ packages = ["src/omnifetch"]
 asyncio_mode = "auto"
 testpaths = ["tests"]
 addopts = "-ra --strict-markers --strict-config --import-mode=importlib --cov=omnifetch --cov-report=term-missing"
+markers = [
+  "docker_integration: builds and runs the Docker image; set OMNIFETCH_RUN_DOCKER_TESTS=1 to enable",
+]
 
 [tool.coverage.run]
 source = ["src/omnifetch"]

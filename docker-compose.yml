@@ -1,0 +1,23 @@
+services:
+  omnifetch:
+    build: .
+    image: omnifetch:local
+    ports:
+      - "${OMNIFETCH_DOCKER_PORT:-8000}:8000"
+    environment:
+      - TAVILY_API_KEY
+      - FIRECRAWL_API_KEY
+      - OMNIFETCH_LOG_LEVEL
+      - OMNIFETCH_REST_WEB_FETCH
+      - OMNIFETCH_UVLOOP
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request as u; u.urlopen('http://127.0.0.1:8000/health', timeout=3)"
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+    restart: unless-stopped
