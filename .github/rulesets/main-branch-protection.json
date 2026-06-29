@@ -33,6 +33,7 @@
           { "context": "Test (py3.11)" },
           { "context": "Test (py3.12)" },
           { "context": "Test (py3.13)" },
+          { "context": "Docker integration" },
           { "context": "Dependency audit" },
           { "context": "Build distribution (with provenance)" },
           { "context": "Analyze (python)" },
