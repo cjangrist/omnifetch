@@ -59,6 +59,29 @@ curl -s http://127.0.0.1:8000/web_fetch \
   -d '{"url":"https://example.com"}'
 ```
 
+Run the container image over streamable HTTP:
+
+```bash
+docker build -t omnifetch:local .
+docker run -p 8000:8000 omnifetch:local
+```
+
+Run with Docker Compose:
+
+```bash
+docker compose up -d --build
+curl -s http://127.0.0.1:8000/health
+curl -s http://127.0.0.1:8000/web_fetch \
+  -H 'content-type: application/json' \
+  -d '{"url":"https://example.com"}'
+```
+
+Provider secrets can be passed from the shell environment:
+
+```bash
+TAVILY_API_KEY=... FIRECRAWL_API_KEY=... docker compose up -d
+```
+
 Register with an MCP client (e.g. Claude Code / Claude Desktop):
 
 ```json
