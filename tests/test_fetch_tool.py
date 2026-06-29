@@ -11,6 +11,7 @@ import respx
 from fastmcp import Client, FastMCP
 from fastmcp.client.transports import FastMCPTransport
 from fastmcp.exceptions import ToolError
+from starlette.testclient import TestClient
 
 import omnifetch.server as server_module
 import omnifetch.tools.fetch as fetch_module
@@ -149,6 +150,192 @@ async def test_fetch_tool_skips_tavily_and_uses_firecrawl(
     assert result.data.url == "https://canonical.example/fire"
     assert result.data.providers_attempted == ["firecrawl"]
     assert result.data.alternative_results is None
+
+
+def test_health_route_reports_active_provider_count(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("TAVILY_API_KEY", "tavily-secret")
+    server = build_server(load_config(transport="http"))
+
+    with TestClient(server.http_app(transport="http")) as client:
+        response = client.get("/health")
+
+    assert response.status_code == 200
+    assert response.json() == {"status": "ok", "providers": 1}
+
+
+def test_rest_fetch_returns_tavily_response(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("TAVILY_API_KEY", "tavily-secret")
+    with respx.mock(assert_all_called=True) as router:
+        router.post("https://api.tavily.com/extract").respond(
+            json={
+                "results": [
+                    {
+                        "url": "https://canonical.example/article",
+                        "raw_content": "# Tavily\n\n"
+                        + ("useful content " * 30),
+                    }
+                ],
+                "failed_results": [],
+            }
+        )
+        server = build_server(load_config(transport="http"))
+        with TestClient(server.http_app(transport="http")) as client:
+            response = client.post(
+                "/fetch",
+                json={"url": "https://example.test/article"},
+            )
+
+    assert response.status_code == 200
+    assert response.json()["source_provider"] == "tavily"
+    assert response.json()["url"] == "https://canonical.example/article"
+    assert response.json()["providers_attempted"] == ["tavily"]
+
+
+def test_rest_fetch_uses_explicit_provider(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("TAVILY_API_KEY", "tavily-secret")
+    monkeypatch.setenv("FIRECRAWL_API_KEY", "fire-secret")
+    with respx.mock(assert_all_called=True) as router:
+        router.post("https://api.firecrawl.dev/v2/scrape").respond(
+            json={
+                "success": True,
+                "data": {"markdown": "# Firecrawl\n\n" + ("content " * 30)},
+            }
+        )
+        server = build_server(load_config(transport="http"))
+        with TestClient(server.http_app(transport="http")) as client:
+            response = client.post(
+                "/fetch",
+                json={
+                    "url": "https://example.test/article",
+                    "provider": "firecrawl",
+                },
+            )
+
+    assert response.status_code == 200
+    assert response.json()["source_provider"] == "firecrawl"
+    assert response.json()["providers_attempted"] == ["firecrawl"]
+
+
+def test_rest_fetch_can_be_disabled(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("TAVILY_API_KEY", "tavily-secret")
+    server = build_server(load_config(transport="http", rest_fetch=False))
+
+    with TestClient(server.http_app(transport="http")) as client:
+        health_response = client.get("/health")
+        fetch_response = client.post(
+            "/fetch",
+            json={"url": "https://example.test/article"},
+        )
+
+    assert health_response.status_code == 200
+    assert fetch_response.status_code == 404
+
+
+@pytest.mark.parametrize(
+    ("payload", "message"),
+    [
+        ({}, "url is required"),
+        ({"url": ""}, "url is required"),
+        ({"url": 12}, "url is required"),
+        ({"url": "x" * 2001}, "url must be 2000 characters or fewer"),
+        (
+            {
+                "url": "https://example.test/article",
+                "provider": 12,
+            },
+            "provider must be a non-empty string",
+        ),
+        (
+            {
+                "url": "https://example.test/article",
+                "provider": "",
+            },
+            "provider must be a non-empty string",
+        ),
+    ],
+)
+def test_rest_fetch_rejects_invalid_payload(
+    payload: dict[str, object],
+    message: str,
+) -> None:
+    server = build_server(load_config(transport="http"))
+
+    with TestClient(server.http_app(transport="http")) as client:
+        response = client.post("/fetch", json=payload)
+
+    assert response.status_code == 400
+    assert response.json() == {"error": message}
+
+
+@pytest.mark.parametrize(
+    ("content", "expected"),
+    [
+        (b"not-json", "request body must be valid JSON"),
+        (b"[]", "request body must be a JSON object"),
+    ],
+)
+def test_rest_fetch_rejects_invalid_json_body(
+    content: bytes,
+    expected: str,
+) -> None:
+    server = build_server(load_config(transport="http"))
+
+    with TestClient(server.http_app(transport="http")) as client:
+        response = client.post(
+            "/fetch",
+            content=content,
+            headers={"content-type": "application/json"},
+        )
+
+    assert response.status_code == 400
+    assert response.json() == {"error": expected}
+
+
+def test_rest_fetch_maps_unknown_skip_provider_to_bad_request(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("TAVILY_API_KEY", "tavily-secret")
+    server = build_server(load_config(transport="http"))
+
+    with TestClient(server.http_app(transport="http")) as client:
+        response = client.post(
+            "/fetch",
+            json={
+                "url": "https://example.test/article",
+                "skip_providers": "bogus",
+            },
+        )
+
+    assert response.status_code == 400
+    assert response.json()["error"].startswith(
+        "Unknown skip_providers names: bogus"
+    )
+
+
+@pytest.mark.parametrize(
+    ("error_type", "expected_status"),
+    [
+        (ErrorType.INVALID_INPUT, 400),
+        (ErrorType.NOT_FOUND, 404),
+        (ErrorType.RATE_LIMIT, 429),
+        (ErrorType.API_ERROR, 502),
+    ],
+)
+def test_provider_errors_map_to_rest_status_codes(
+    error_type: ErrorType,
+    expected_status: int,
+) -> None:
+    error = ProviderError(error_type, "provider failed", "fetch")
+
+    assert server_module._status_for_provider_error(error) == expected_status
 
 
 async def test_fetch_tool_rejects_unknown_skip_provider(

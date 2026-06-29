@@ -50,6 +50,15 @@ Run over streamable HTTP:
 uv run omnifetch --transport http --host 127.0.0.1 --port 8000
 ```
 
+HTTP transport also exposes:
+
+```bash
+curl -s http://127.0.0.1:8000/health
+curl -s http://127.0.0.1:8000/fetch \
+  -H 'content-type: application/json' \
+  -d '{"url":"https://example.com"}'
+```
+
 Register with an MCP client (e.g. Claude Code / Claude Desktop):
 
 ```json
