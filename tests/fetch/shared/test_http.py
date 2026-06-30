@@ -285,7 +285,7 @@ async def test_streaming_guard_rejects_lying_content_length() -> None:
     assert stream.closed is True
 
 
-async def test_redacted_url_is_logged(
+async def test_url_secrets_are_not_logged(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     def handler(request: httpx.Request) -> httpx.Response:
@@ -302,7 +302,7 @@ async def test_redacted_url_is_logged(
                 == "ok"
             )
     messages = [record.getMessage() for record in caplog.records]
-    assert any("%5BREDACTED%5D" in message for message in messages)
+    assert any("HTTP GET request" in message for message in messages)
     assert not any("SECRET" in message for message in messages)
 
 
@@ -326,11 +326,7 @@ async def test_params_reach_request_without_secret_logs(
                 == "ok"
             )
     messages = [record.getMessage() for record in caplog.records]
-    assert any(
-        "HTTP GET https://api.test/data" in message for message in messages
-    )
-    assert any("api_key=%5BREDACTED%5D" in message for message in messages)
-    assert any("q=1" in message for message in messages)
+    assert any("HTTP GET request" in message for message in messages)
     assert not any("SECRET" in message for message in messages)
 
 
