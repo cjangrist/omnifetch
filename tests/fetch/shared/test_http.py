@@ -306,6 +306,34 @@ async def test_redacted_url_is_logged(
     assert not any("SECRET" in message for message in messages)
 
 
+async def test_params_reach_request_without_secret_logs(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.params["api_key"] == "SECRET"
+        assert request.url.params["q"] == "1"
+        return httpx.Response(200, text="ok", request=request)
+
+    with caplog.at_level(logging.DEBUG, logger="omnifetch.fetch.http"):
+        async with _mock_client(httpx.MockTransport(handler)) as client:
+            assert (
+                await http_text(
+                    client,
+                    "provider",
+                    "https://api.test/data",
+                    params={"api_key": "SECRET", "q": "1"},
+                )
+                == "ok"
+            )
+    messages = [record.getMessage() for record in caplog.records]
+    assert any(
+        "HTTP GET https://api.test/data" in message for message in messages
+    )
+    assert any("api_key=%5BREDACTED%5D" in message for message in messages)
+    assert any("q=1" in message for message in messages)
+    assert not any("SECRET" in message for message in messages)
+
+
 async def test_same_host_concurrency_is_limited() -> None:
     _HOST_SEMAPHORES.clear()
     in_flight = 0
