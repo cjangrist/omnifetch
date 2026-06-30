@@ -40,6 +40,9 @@ _HTTP_SERVER_ERROR_MIN = 500
 _SENSITIVE_QUERY_PARAMS = frozenset(
     {"api_key", "key", "token", "app_id", "x-api-key", "apikey"}
 )
+_SENSITIVE_QUERY_PARAM_MARKERS = frozenset(
+    {"authorization", "api_key", "x-api-key", "api-key", "apikey", "token"}
+)
 _HOST_SEMAPHORES: dict[tuple[str, int], asyncio.Semaphore] = {}
 
 _ResponseModel = TypeVar("_ResponseModel", bound=BaseModel)
@@ -86,9 +89,7 @@ def _redact(url: str) -> str:
         query_items = (
             (
                 key,
-                "[REDACTED]"
-                if key.lower() in _SENSITIVE_QUERY_PARAMS
-                else value,
+                "[REDACTED]" if _is_sensitive_query_param(key) else value,
             )
             for key, value in parse_qsl(parts.query, keep_blank_values=True)
         )
@@ -104,6 +105,13 @@ def _log_url(url: str, params: Any) -> str:
     if params is None:
         return url
     return str(httpx.URL(url).copy_merge_params(params))
+
+
+def _is_sensitive_query_param(key: str) -> bool:
+    normalized = key.lower()
+    return normalized in _SENSITIVE_QUERY_PARAMS or any(
+        marker in normalized for marker in _SENSITIVE_QUERY_PARAM_MARKERS
+    )
 
 
 async def _read_capped(response: httpx.Response, provider: str) -> str:

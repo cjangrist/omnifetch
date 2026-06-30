@@ -84,6 +84,19 @@ def test_redact_replaces_sensitive_query_parameters() -> None:
     assert "q=1" in redacted
 
 
+def test_redact_replaces_forwarded_authorization_query_parameters() -> None:
+    redacted = _redact(
+        "https://api.scrapfly.io/scrape"
+        "?headers[Authorization]=Bearer+KIMI-SECRET"
+        "&headers[x-api-key]=SCRAPFLY-SECRET"
+        "&url=https%3A%2F%2Fapi.kimi.com%2Fcoding%2Fv1%2Ffetch"
+    )
+    assert "KIMI-SECRET" not in redacted
+    assert "SCRAPFLY-SECRET" not in redacted
+    assert "headers%5BAuthorization%5D=%5BREDACTED%5D" in redacted
+    assert "headers%5Bx-api-key%5D=%5BREDACTED%5D" in redacted
+
+
 def test_redact_truncates_invalid_urls() -> None:
     assert (
         _redact("http://[bad" + ("x" * 250))
