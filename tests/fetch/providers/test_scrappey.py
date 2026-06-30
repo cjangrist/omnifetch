@@ -116,7 +116,16 @@ async def test_scrappey_requires_key() -> None:
             "Failed to fetch URL content: Scrappey request failed: success",
         ),
         (
+            {"solution": {"innerText": "Visible"}},
+            "Failed to fetch URL content: "
+            "Scrappey request failed: (missing data field)",
+        ),
+        (
             {"data": "success", "solution": {"innerText": ""}},
+            "Failed to fetch URL content: Scrappey returned empty innerText",
+        ),
+        (
+            {"data": "success", "solution": {}},
             "Failed to fetch URL content: Scrappey returned empty innerText",
         ),
     ],

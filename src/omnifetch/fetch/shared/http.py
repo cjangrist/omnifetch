@@ -14,7 +14,6 @@ from typing import Any, overload, TypeVar
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 import httpx
-from httpx._types import QueryParamTypes
 from pydantic import BaseModel
 from tenacity import (
     AsyncRetrying,
@@ -51,7 +50,7 @@ class _RequestOptions:
     """Keyword options passed through to ``httpx.AsyncClient.stream``."""
 
     method: str = "GET"
-    params: QueryParamTypes | None = None
+    params: Any = None
     headers: dict[str, str] | None = None
     params: Any = None
     content: str | bytes | None = None

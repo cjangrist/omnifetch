@@ -67,7 +67,12 @@ class ScrappeyFetchProvider(FetchProvider):
                 timeout_s=self.timeout_s,
             )
             if data.data != "success" or data.solution is None:
-                raise ValueError(f"Scrappey request failed: {data.data}")
+                status = (
+                    data.data
+                    if data.data is not None
+                    else "(missing data field)"
+                )
+                raise ValueError(f"Scrappey request failed: {status}")
 
             content = data.solution.inner_text
             if not content:
