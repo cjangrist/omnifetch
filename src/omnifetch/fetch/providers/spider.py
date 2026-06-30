@@ -15,7 +15,6 @@ from omnifetch.fetch.shared.util import (
 
 _API_TOKEN_ENV_NAME = "SPIDER_CLOUD_API_TOKEN"
 _TIMEOUT_MS = 30_000
-_HTTP_OK_STATUS = 200
 
 
 class _SpiderPage(BaseModel):
@@ -24,7 +23,7 @@ class _SpiderPage(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
     url: str = ""
-    status: int
+    status: int | None = None
     content: str = ""
     error: str | None = None
 
@@ -44,8 +43,6 @@ def _validate_page(page: _SpiderPage) -> None:
     """Raise for Spider page-level errors or unusable markdown content."""
     if page.error:
         raise ValueError(f"Spider scrape error: {page.error}")
-    if page.status != _HTTP_OK_STATUS:
-        raise ValueError(f"Spider target returned status {page.status}")
     if not page.content:
         raise ValueError("Spider returned empty content")
 

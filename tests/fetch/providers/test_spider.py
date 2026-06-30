@@ -77,6 +77,36 @@ async def test_spider_requires_token() -> None:
     assert str(error_info.value) == "API key not found for spider"
 
 
+@pytest.mark.parametrize("page_status", [301, None])
+async def test_spider_accepts_content_regardless_of_page_status(
+    page_status: int | None,
+) -> None:
+    """Spider follows TypeScript behavior and trusts non-empty content."""
+    page: dict[str, object] = {
+        "url": _TARGET_URL,
+        "content": "# Spider\n\nBody",
+    }
+    if page_status is not None:
+        page["status"] = page_status
+
+    with respx.mock(assert_all_called=True) as router:
+        router.post(_SCRAPE_URL).respond(200, json=[page])
+        async with httpx.AsyncClient() as client:
+            provider = SpiderFetchProvider(
+                ProviderSecrets({"SPIDER_CLOUD_API_TOKEN": "spider-secret"}),
+                client,
+            )
+            result = await provider.fetch_url(_TARGET_URL)
+
+    assert result == FetchResult(
+        url=_TARGET_URL,
+        title="Spider",
+        content="# Spider\n\nBody",
+        source_provider="spider",
+        metadata={"status": page_status},
+    )
+
+
 @pytest.mark.parametrize(
     ("payload", "message"),
     [
@@ -94,16 +124,6 @@ async def test_spider_requires_token() -> None:
                 }
             ],
             "Failed to fetch URL content: Spider scrape error: crawl blocked",
-        ),
-        (
-            [
-                {
-                    "url": _TARGET_URL,
-                    "status": 500,
-                    "content": "# Spider",
-                }
-            ],
-            "Failed to fetch URL content: Spider target returned status 500",
         ),
         (
             [{"url": _TARGET_URL, "status": 200, "content": ""}],
@@ -130,10 +150,40 @@ async def test_spider_rejects_empty_or_failed_results(
     assert str(error_info.value) == message
 
 
-async def test_spider_maps_http_errors() -> None:
+@pytest.mark.parametrize(
+    ("status_code", "error_type", "message"),
+    [
+        (401, ErrorType.API_ERROR, "Invalid API key"),
+        (
+            403,
+            ErrorType.API_ERROR,
+            "API key does not have access to this endpoint",
+        ),
+        (
+            404,
+            ErrorType.API_ERROR,
+            "spider endpoint not found (404): missing",
+        ),
+        (429, ErrorType.RATE_LIMIT, "Rate limit exceeded for spider"),
+        (
+            500,
+            ErrorType.PROVIDER_ERROR,
+            "spider API internal error (500): down",
+        ),
+    ],
+)
+async def test_spider_maps_http_errors(
+    status_code: int,
+    error_type: ErrorType,
+    message: str,
+) -> None:
     """Spider HTTP statuses use the shared HTTP taxonomy."""
+    payload_message = "missing" if status_code == 404 else "down"
     with respx.mock(assert_all_called=True) as router:
-        router.post(_SCRAPE_URL).respond(401, json={"message": "bad token"})
+        router.post(_SCRAPE_URL).respond(
+            status_code,
+            json={"message": payload_message},
+        )
         async with httpx.AsyncClient() as client:
             provider = SpiderFetchProvider(
                 ProviderSecrets({"SPIDER_CLOUD_API_TOKEN": "spider-secret"}),
@@ -142,8 +192,8 @@ async def test_spider_maps_http_errors() -> None:
             with pytest.raises(ProviderError) as error_info:
                 await provider.fetch_url(_TARGET_URL)
 
-    assert error_info.value.error_type is ErrorType.API_ERROR
-    assert str(error_info.value) == "Invalid API key"
+    assert error_info.value.error_type is error_type
+    assert str(error_info.value) == message
 
 
 def test_spider_registers_and_gates(
