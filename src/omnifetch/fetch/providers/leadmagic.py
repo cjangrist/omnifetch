@@ -14,16 +14,6 @@ _API_KEY_ENV_NAME = "LEADMAGIC_API_KEY"
 _TIMEOUT_MS = 30_000
 
 
-class _LeadMagicPayload(BaseModel):
-    """LeadMagic markdown payload."""
-
-    model_config = ConfigDict(extra="ignore")
-
-    markdown: str | None = None
-    title: str | None = None
-    url: str | None = None
-
-
 class _LeadMagicResponse(BaseModel):
     """Typed subset of LeadMagic Web2MD responses."""
 
@@ -32,18 +22,6 @@ class _LeadMagicResponse(BaseModel):
     markdown: str | None = None
     title: str | None = None
     url: str | None = None
-    data: _LeadMagicPayload | None = None
-
-
-def _payload_from_response(response: _LeadMagicResponse) -> _LeadMagicPayload:
-    """Return the markdown payload from known LeadMagic response shapes."""
-    if response.data is not None:
-        return response.data
-    return _LeadMagicPayload(
-        markdown=response.markdown,
-        title=response.title,
-        url=response.url,
-    )
 
 
 class LeadMagicFetchProvider(FetchProvider):
@@ -75,14 +53,13 @@ class LeadMagicFetchProvider(FetchProvider):
                 json={"url": url},
                 timeout_s=self.timeout_s,
             )
-            payload = _payload_from_response(response)
-            content = payload.markdown
+            content = response.markdown
             if not content:
                 raise ValueError("LeadMagic returned empty markdown")
 
             return FetchResult(
                 url=url,
-                title=payload.title or extract_markdown_title(content),
+                title=response.title or extract_markdown_title(content),
                 content=content,
                 source_provider=self.name,
             )

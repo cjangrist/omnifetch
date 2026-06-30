@@ -75,16 +75,13 @@ async def test_leadmagic_uses_markdown_title_fallback() -> None:
     assert result.title == "Fallback Heading"
 
 
-async def test_leadmagic_accepts_nested_payload_shape() -> None:
+async def test_leadmagic_ignores_unrelated_data_key() -> None:
     with respx.mock(assert_all_called=True) as router:
         router.post(_SCRAPE_URL).respond(
             json={
-                "success": True,
-                "data": {
-                    "markdown": "# Nested Heading\n\nBody",
-                    "title": "Nested Title",
-                    "url": "https://canonical.example/article",
-                },
+                "data": {},
+                "markdown": "# Flat Heading\n\nBody",
+                "title": "Flat Title",
             }
         )
         async with httpx.AsyncClient() as client:
@@ -96,8 +93,8 @@ async def test_leadmagic_accepts_nested_payload_shape() -> None:
 
     assert result == FetchResult(
         url=_TARGET_URL,
-        title="Nested Title",
-        content="# Nested Heading\n\nBody",
+        title="Flat Title",
+        content="# Flat Heading\n\nBody",
         source_provider="leadmagic",
     )
 
@@ -117,7 +114,6 @@ async def test_leadmagic_requires_key() -> None:
     [
         {},
         {"markdown": ""},
-        {"data": {"markdown": ""}},
     ],
 )
 async def test_leadmagic_rejects_empty_markdown(
@@ -139,9 +135,22 @@ async def test_leadmagic_rejects_empty_markdown(
     )
 
 
-async def test_leadmagic_maps_http_errors() -> None:
+@pytest.mark.parametrize(
+    ("status_code", "error_type", "message"),
+    [
+        (401, ErrorType.API_ERROR, "Invalid API key"),
+        (429, ErrorType.RATE_LIMIT, "Rate limit exceeded for leadmagic"),
+    ],
+)
+async def test_leadmagic_maps_http_errors(
+    status_code: int,
+    error_type: ErrorType,
+    message: str,
+) -> None:
     with respx.mock(assert_all_called=True) as router:
-        router.post(_SCRAPE_URL).respond(401, json={"message": "bad key"})
+        router.post(_SCRAPE_URL).respond(
+            status_code, json={"message": "upstream"}
+        )
         async with httpx.AsyncClient() as client:
             provider = LeadMagicFetchProvider(
                 ProviderSecrets({"LEADMAGIC_API_KEY": "leadmagic-secret"}),
@@ -150,8 +159,8 @@ async def test_leadmagic_maps_http_errors() -> None:
             with pytest.raises(ProviderError) as error_info:
                 await provider.fetch_url(_TARGET_URL)
 
-    assert error_info.value.error_type is ErrorType.API_ERROR
-    assert str(error_info.value) == "Invalid API key"
+    assert error_info.value.error_type is error_type
+    assert str(error_info.value) == message
 
 
 def test_leadmagic_registers_and_gates(
