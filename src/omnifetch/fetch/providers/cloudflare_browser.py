@@ -85,7 +85,7 @@ class CloudflareBrowserFetchProvider(FetchProvider):
     async def fetch_url(self, url: str) -> FetchResult:
         """Fetch ``url`` through Cloudflare and return rendered markdown."""
         account_id = _validate_account_id(
-            self._secrets.values.get(_ACCOUNT_ID_ENV_NAME),
+            self._secrets.get(_ACCOUNT_ID_ENV_NAME),
             self.name,
         )
         email = validate_api_key(

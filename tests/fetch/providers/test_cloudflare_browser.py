@@ -89,6 +89,10 @@ async def test_cloudflare_browser_fetches_markdown() -> None:
             {"success": True, "result": "", "errors": []},
             "Cloudflare Browser Rendering failed: No content returned",
         ),
+        (
+            {"success": True, "errors": []},
+            "Cloudflare Browser Rendering failed: No content returned",
+        ),
     ],
 )
 async def test_cloudflare_browser_rejects_failed_or_empty_results(
@@ -169,9 +173,26 @@ async def test_cloudflare_browser_rejects_invalid_account_id() -> None:
     )
 
 
-async def test_cloudflare_browser_maps_http_errors() -> None:
+@pytest.mark.parametrize(
+    ("status_code", "error_type", "message"),
+    [
+        (401, ErrorType.API_ERROR, "Invalid API key"),
+        (
+            403,
+            ErrorType.API_ERROR,
+            "API key does not have access to this endpoint",
+        ),
+    ],
+)
+async def test_cloudflare_browser_maps_http_errors(
+    status_code: int,
+    error_type: ErrorType,
+    message: str,
+) -> None:
     with respx.mock(assert_all_called=True) as router:
-        router.post(_MARKDOWN_URL).respond(401, json={"message": "bad key"})
+        router.post(_MARKDOWN_URL).respond(
+            status_code, json={"message": "cloudflare error"}
+        )
         async with httpx.AsyncClient() as client:
             provider = CloudflareBrowserFetchProvider(
                 ProviderSecrets(_REQUIRED_SECRETS),
@@ -180,8 +201,8 @@ async def test_cloudflare_browser_maps_http_errors() -> None:
             with pytest.raises(ProviderError) as error_info:
                 await provider.fetch_url(_FETCH_URL)
 
-    assert error_info.value.error_type is ErrorType.API_ERROR
-    assert str(error_info.value) == "Invalid API key"
+    assert error_info.value.error_type is error_type
+    assert str(error_info.value) == message
 
 
 def test_cloudflare_browser_registers_and_gates(
