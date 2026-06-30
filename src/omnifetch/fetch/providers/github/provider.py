@@ -49,7 +49,6 @@ class GitHubFetchProvider(FetchProvider):
 
     async def fetch_url(self, url: str) -> FetchResult:
         """Fetch ``url`` through GitHub APIs and return normalized markdown."""
-        validate_api_key(self._secrets.get(API_KEY_ENV_NAME), self.name)
         parsed = parse_github_url(url)
         if parsed is None:
             raise ProviderError(

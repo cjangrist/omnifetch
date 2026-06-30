@@ -540,7 +540,11 @@ def test_github_graphql_helpers() -> None:
     assert graphql.extract_gql_blob(
         {"text": "x", "byteSize": 1}, 10
     ) == TextFile("x", 1)
-    assert "RepoOverview" in graphql.build_core_gql()
+    core_gql = graphql.build_core_gql()
+    assert "RepoOverview" in core_gql
+    assert core_gql.count("history(since:") == 24
+    assert core_gql.count("until:") == 24
+    assert "m2026_01: history(first: 1)" not in core_gql
     assert "TreeChildren" in graphql.build_tree_children_query(["src"])
     root: list[dict[str, Any]] = [
         {"name": "src", "type": "tree"},
@@ -931,6 +935,9 @@ async def test_github_file_directory_raw_and_wiki_handlers() -> None:
             "https://raw.githubusercontent.com/octo/repo/main/src/README.md"
         ).respond(content="# Package")
         router.get(
+            "https://raw.githubusercontent.com/octo/repo/main/src/README.adoc"
+        ).respond(content="# Docs")
+        router.get(
             "https://raw.githubusercontent.com/octo/repo/main/missing.py"
         ).respond(
             404,
@@ -973,6 +980,16 @@ async def test_github_file_directory_raw_and_wiki_handlers() -> None:
                 "src/README.md",
                 1.0,
             )
+            raw_adoc = await fetch_raw_file(
+                client,
+                _TOKEN,
+                API_BASE_URL,
+                _OWNER,
+                _REPO,
+                "main",
+                "src/README.adoc",
+                1.0,
+            )
             with pytest.raises(ProviderError) as missing:
                 await fetch_raw_file(
                     client,
@@ -991,6 +1008,9 @@ async def test_github_file_directory_raw_and_wiki_handlers() -> None:
     assert _result_metadata(binary)["is_binary"] is True
     assert _result_metadata(directory)["item_count"] == 2
     assert raw.content == "# Package"
+    assert raw_adoc.content == "# Docs"
+    assert github_handlers_file._is_root_readme("README.adoc")
+    assert not github_handlers_file._is_root_readme("docs/README.adoc")
     assert missing.value.error_type is ErrorType.NOT_FOUND
     assert "wiki text" in wiki.content
 
@@ -1394,6 +1414,8 @@ async def test_github_repo_overview_graphql_and_rest_fallback() -> None:
     assert _result_metadata(result)["graphql"] is False
     assert "Package Manifests" in result.content
     assert "AGENTS.md" in result.content
+    assert "CONTRIBUTING.md" not in _result_metadata(result)["ai_context_files"]
+    assert "CHANGELOG.md" not in _result_metadata(result)["ai_context_files"]
 
     with respx.mock(assert_all_called=True) as router:
         _mock_rest_overview(router, rest_tree)
@@ -1402,6 +1424,23 @@ async def test_github_repo_overview_graphql_and_rest_fallback() -> None:
                 client, _TOKEN, API_BASE_URL, _OWNER, _REPO, 1.0
             )
     assert _result_metadata(rest_result)["default_branch"] == "main"
+
+    detected_tree: dict[str, object] = {
+        "tree": [
+            *cast(list[dict[str, object]], rest_tree["tree"]),
+            {"path": "CONTRIBUTING.md", "type": "blob", "size": 20},
+        ]
+    }
+    with respx.mock(assert_all_called=True) as router:
+        _mock_rest_overview(router, detected_tree)
+        async with httpx.AsyncClient() as client:
+            detected_result = await fetch_repo_overview_rest(
+                client, _TOKEN, API_BASE_URL, _OWNER, _REPO, 1.0
+            )
+    assert (
+        "CONTRIBUTING.md"
+        in _result_metadata(detected_result)["ai_context_files"]
+    )
 
 
 def test_github_markdown_builder_full_and_minimal_data() -> None:

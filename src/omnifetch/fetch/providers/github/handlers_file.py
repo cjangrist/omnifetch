@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+import re
 from urllib.parse import quote
 
 import httpx
@@ -22,7 +23,7 @@ from omnifetch.fetch.providers.github.repo_overview import fetch_repo_overview
 from omnifetch.fetch.shared.http import http_raw
 from omnifetch.fetch.shared.types import ErrorType, FetchResult, ProviderError
 
-_README_NAMES = ("readme", "readme.md", "readme.rst", "readme.markdown")
+_README_RE = re.compile(r"^readme(\.[a-z0-9]+)?$", re.IGNORECASE)
 
 
 async def fetch_file(
@@ -396,7 +397,7 @@ def _raw_file_result(
     file_ext = path.rsplit(".", maxsplit=1)[-1] if path and "." in path else ""
     content = (
         raw
-        if path and "/" in path and file_name.lower() in _README_NAMES
+        if path and "/" in path and _is_readme_file_name(file_name)
         else (
             f"# {file_name}\n\n**Repository:** {owner}/{repo}\n**Ref:** `{ref}`\n"
             f"**Size:** {format_size(len(raw))}\n\n---\n\n`````{file_ext}\n{raw}\n`````\n\n"
@@ -421,7 +422,11 @@ def _raw_url(owner: str, repo: str, ref: str, path: str | None) -> str:
 
 
 def _is_root_readme(path: str | None) -> bool:
-    return bool(path and "/" not in path and path.lower() in _README_NAMES)
+    return bool(path and "/" not in path and _is_readme_file_name(path))
+
+
+def _is_readme_file_name(file_name: str) -> bool:
+    return bool(_README_RE.fullmatch(file_name))
 
 
 def _size(entry: object) -> int:

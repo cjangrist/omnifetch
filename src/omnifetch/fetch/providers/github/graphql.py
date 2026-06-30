@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime, UTC
 from typing import Any
 
 from omnifetch.fetch.providers.github.constants import (
@@ -113,9 +114,24 @@ def filter_rest_tree(entries: list[TreeEntry]) -> list[TreeEntry]:
 
 
 def _build_monthly_history_aliases() -> str:
+    now = datetime.now(tz=UTC)
     return "\n      ".join(
-        f"m2026_{month:02d}: history(first: 1) {{ totalCount }}"
-        for month in range(1, 13)
+        _monthly_history_alias(now.year, now.month - offset)
+        for offset in range(24)
+    )
+
+
+def _monthly_history_alias(year: int, month: int) -> str:
+    normalized_year = year + (month - 1) // 12
+    normalized_month = (month - 1) % 12 + 1
+    next_year = normalized_year + normalized_month // 12
+    next_month = normalized_month % 12 + 1
+    since = f"{normalized_year:04d}-{normalized_month:02d}-01T00:00:00Z"
+    until = f"{next_year:04d}-{next_month:02d}-01T00:00:00Z"
+    label = f"m{normalized_year:04d}_{normalized_month:02d}"
+    return (
+        f'{label}: history(since: "{since}", until: "{until}", first: 1) '
+        "{ totalCount }"
     )
 
 

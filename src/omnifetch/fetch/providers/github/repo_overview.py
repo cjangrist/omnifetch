@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 
 import httpx
@@ -285,43 +286,43 @@ async def _rest_overview_enrichment(
     default_branch = str(repo_mapping.get("default_branch") or "main")
     total_stars = _int_value(repo_data, "stargazers_count")
     star_page = min(STARGAZER_MAX_PAGE, max(1, (total_stars + 29) // 30))
-    commits = await github_get_safe(
-        client,
-        token,
-        base_url,
-        f"/repos/{owner}/{repo}/commits?sha={default_branch}&per_page={OVERVIEW_COMMITS_PER_PAGE}",
-        timeout_s,
-    )
-    issues = await github_get_safe(
-        client,
-        token,
-        base_url,
-        f"/repos/{owner}/{repo}/issues?state=open&per_page={OVERVIEW_ISSUES_PER_PAGE}&sort=updated",
-        timeout_s,
-    )
-    pulls = await github_get_safe(
-        client,
-        token,
-        base_url,
-        f"/repos/{owner}/{repo}/pulls?state=open&per_page={OVERVIEW_PRS_PER_PAGE}&sort=updated&direction=desc",
-        timeout_s,
-    )
-    releases = await github_get_safe(
-        client,
-        token,
-        base_url,
-        f"/repos/{owner}/{repo}/releases?per_page={OVERVIEW_RELEASES_PER_PAGE}",
-        timeout_s,
-    )
-    tree_data = await github_get_safe(
-        client,
-        token,
-        base_url,
-        f"/repos/{owner}/{repo}/git/trees/{default_branch}?recursive=1",
-        timeout_s,
-    )
-    stars = (
-        await github_get_starred(
+    commits, issues, pulls, releases, tree_data, stars = await asyncio.gather(
+        github_get_safe(
+            client,
+            token,
+            base_url,
+            f"/repos/{owner}/{repo}/commits?sha={default_branch}&per_page={OVERVIEW_COMMITS_PER_PAGE}",
+            timeout_s,
+        ),
+        github_get_safe(
+            client,
+            token,
+            base_url,
+            f"/repos/{owner}/{repo}/issues?state=open&per_page={OVERVIEW_ISSUES_PER_PAGE}&sort=updated",
+            timeout_s,
+        ),
+        github_get_safe(
+            client,
+            token,
+            base_url,
+            f"/repos/{owner}/{repo}/pulls?state=open&per_page={OVERVIEW_PRS_PER_PAGE}&sort=updated&direction=desc",
+            timeout_s,
+        ),
+        github_get_safe(
+            client,
+            token,
+            base_url,
+            f"/repos/{owner}/{repo}/releases?per_page={OVERVIEW_RELEASES_PER_PAGE}",
+            timeout_s,
+        ),
+        github_get_safe(
+            client,
+            token,
+            base_url,
+            f"/repos/{owner}/{repo}/git/trees/{default_branch}?recursive=1",
+            timeout_s,
+        ),
+        github_get_starred(
             client,
             token,
             base_url,
@@ -329,7 +330,7 @@ async def _rest_overview_enrichment(
             timeout_s,
         )
         if total_stars
-        else None
+        else asyncio.sleep(0, result=None),
     )
     return await _repo_data_from_rest(
         client,
@@ -395,6 +396,7 @@ async def _repo_data_from_rest(
         releases,
         stars,
         filter_rest_tree(full_tree),
+        tree_paths,
         docs_dir,
         docs_files,
         context_files,
@@ -496,6 +498,7 @@ def _rest_data(
     releases: Any,
     stars: Any,
     tree_entries: list[TreeEntry],
+    tree_paths: set[str],
     docs_dir: str | None,
     docs_files: list[str],
     context_files: dict[str, TextFile],
@@ -572,7 +575,7 @@ def _rest_data(
         extra_detected=[
             name
             for name in ("CONTRIBUTING.md", "CHANGELOG.md")
-            if name not in context_files
+            if name in tree_paths and name not in context_files
         ],
         commits=[_rest_commit(commit) for commit in _coerce_list(commits)],
         issues=[_rest_issue(issue) for issue in real_issues],
@@ -591,45 +594,52 @@ async def _fetch_rest_context_and_deps(
     tree_paths: set[str],
     timeout_s: float,
 ) -> tuple[dict[str, TextFile], list[tuple[str, str]]]:
-    context_pairs = [
-        (
-            name,
-            await github_get_raw_safe(
-                client,
-                token,
-                base_url,
-                f"/repos/{owner}/{repo}/contents/{name}",
-                timeout_s,
-            ),
-        )
-        for name in CONTEXT_FILE_NAMES
-        if name in tree_paths
-    ]
-    dep_pairs = [
-        (
-            name,
-            await github_get_raw_safe(
-                client,
-                token,
-                base_url,
-                f"/repos/{owner}/{repo}/contents/{name}",
-                timeout_s,
-            ),
-        )
-        for name in DEP_CONFIG_ALLOWLIST
-        if name in tree_paths
-    ]
+    context_names = [name for name in CONTEXT_FILE_NAMES if name in tree_paths]
+    dep_names = [name for name in DEP_CONFIG_ALLOWLIST if name in tree_paths]
+    context_raws, dep_raws = await asyncio.gather(
+        _fetch_rest_raw_files(
+            client, token, base_url, owner, repo, context_names, timeout_s
+        ),
+        _fetch_rest_raw_files(
+            client, token, base_url, owner, repo, dep_names, timeout_s
+        ),
+    )
     context = {
         name: TextFile(raw, len(raw))
-        for name, raw in context_pairs
+        for name, raw in zip(context_names, context_raws, strict=True)
         if raw and len(raw) <= CONTEXT_FILE_LIMITS[name]
     }
     deps = [
         (name, raw)
-        for name, raw in dep_pairs
+        for name, raw in zip(dep_names, dep_raws, strict=True)
         if raw and len(raw) <= DEP_CONFIG_ALLOWLIST[name][1]
     ]
     return context, deps
+
+
+async def _fetch_rest_raw_files(
+    client: httpx.AsyncClient,
+    token: str,
+    base_url: str,
+    owner: str,
+    repo: str,
+    names: list[str],
+    timeout_s: float,
+) -> tuple[str | None, ...]:
+    return tuple(
+        await asyncio.gather(
+            *(
+                github_get_raw_safe(
+                    client,
+                    token,
+                    base_url,
+                    f"/repos/{owner}/{repo}/contents/{name}",
+                    timeout_s,
+                )
+                for name in names
+            )
+        )
+    )
 
 
 async def _fetch_rest_ai_rules(
@@ -673,20 +683,28 @@ async def _fetch_inline_ai_rules(
     listing: dict[str, list[TextFile]],
     timeout_s: float,
 ) -> dict[str, TextFile]:
-    inline: dict[str, TextFile] = {}
-    for directory_path, files in listing.items():
-        if len(files) == 1 and files[0].size <= AI_RULES_INLINE_MAX_BYTES:
-            path = f"{directory_path}/{files[0].text}"
-            raw = await github_get_raw_safe(
+    inline_targets = [
+        (directory_path, f"{directory_path}/{files[0].text}")
+        for directory_path, files in listing.items()
+        if len(files) == 1 and files[0].size <= AI_RULES_INLINE_MAX_BYTES
+    ]
+    raws = await asyncio.gather(
+        *(
+            github_get_raw_safe(
                 client,
                 token,
                 base_url,
                 f"/repos/{owner}/{repo}/contents/{path}",
                 timeout_s,
             )
-            if raw:
-                inline[directory_path] = TextFile(raw, len(raw))
-    return inline
+            for _, path in inline_targets
+        )
+    )
+    return {
+        directory_path: TextFile(raw, len(raw))
+        for (directory_path, _), raw in zip(inline_targets, raws, strict=True)
+        if raw
+    }
 
 
 def _process_rest_tree(
