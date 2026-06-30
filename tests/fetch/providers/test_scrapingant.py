@@ -98,6 +98,40 @@ async def test_scrapingant_rejects_empty_markdown() -> None:
     )
 
 
+@pytest.mark.parametrize(
+    ("status_code", "error_type", "message"),
+    [
+        (401, ErrorType.API_ERROR, "Invalid API key"),
+        (429, ErrorType.RATE_LIMIT, "Rate limit exceeded for scrapingant"),
+        (
+            500,
+            ErrorType.PROVIDER_ERROR,
+            "scrapingant API internal error (500): down",
+        ),
+    ],
+)
+async def test_scrapingant_maps_http_errors(
+    status_code: int,
+    error_type: ErrorType,
+    message: str,
+) -> None:
+    with respx.mock(assert_all_called=True) as router:
+        router.get(f"{_BASE_URL}/v2/markdown").respond(
+            status_code,
+            json={"message": "down"},
+        )
+        async with httpx.AsyncClient() as client:
+            provider = ScrapingAntFetchProvider(
+                ProviderSecrets({"SCRAPINGANT_API_KEY": "scrapingant-secret"}),
+                client,
+            )
+            with pytest.raises(ProviderError) as error_info:
+                await provider.fetch_url(_TARGET_URL)
+
+    assert error_info.value.error_type is error_type
+    assert str(error_info.value) == message
+
+
 def test_scrapingant_registers_and_gates(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
