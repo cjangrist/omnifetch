@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from urllib.parse import urlencode
+
 from omnifetch.fetch.providers.base import FetchProvider
 from omnifetch.fetch.shared.html import extract_markdown_title
 from omnifetch.fetch.shared.http import http_text
@@ -33,15 +35,17 @@ class ScraperAPIFetchProvider(FetchProvider):
             self.name,
         )
         try:
-            content = await http_text(
-                self._client,
-                self.name,
-                self.base_url,
-                params={
+            query = urlencode(
+                {
                     "api_key": api_key,
                     "url": url,
                     "output_format": "markdown",
-                },
+                }
+            )
+            content = await http_text(
+                self._client,
+                self.name,
+                f"{self.base_url}?{query}",
                 timeout_s=self.timeout_s,
             )
             if not content:

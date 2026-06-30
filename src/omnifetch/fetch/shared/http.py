@@ -219,7 +219,6 @@ async def _do_request(
             options.method,
             url,
             headers=options.headers,
-            params=options.params,
             content=options.content,
             json=options.json,
             timeout=timeout,
