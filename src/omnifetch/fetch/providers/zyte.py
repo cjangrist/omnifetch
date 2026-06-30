@@ -60,6 +60,11 @@ def _build_metadata(page_content: _ZytePageContent) -> dict[str, Any] | None:
     return metadata or None
 
 
+def _first_present(*values: str | None) -> str:
+    """Return the first value that is present, including empty strings."""
+    return next((value for value in values if value is not None), "")
+
+
 class ZyteFetchProvider(FetchProvider):
     """Fetch clean page content using Zyte automatic extraction."""
 
@@ -94,8 +99,8 @@ class ZyteFetchProvider(FetchProvider):
                 raise ValueError("Zyte returned no page content")
 
             return FetchResult(
-                url=page_content.canonical_url or data.url or url,
-                title=page_content.title or page_content.headline or "",
+                url=_first_present(page_content.canonical_url, data.url, url),
+                title=_first_present(page_content.title, page_content.headline),
                 content=page_content.item_main,
                 source_provider=self.name,
                 metadata=_build_metadata(page_content),

@@ -122,6 +122,30 @@ async def test_zyte_uses_requested_url_without_optional_metadata() -> None:
     )
 
 
+async def test_zyte_preserves_present_empty_title_and_canonical_url() -> None:
+    with respx.mock(assert_all_called=True) as router:
+        router.post(_EXTRACT_URL).respond(
+            json={
+                "url": "https://response.example/article",
+                "pageContent": {
+                    "headline": "Fallback headline",
+                    "title": "",
+                    "itemMain": "Main article body",
+                    "canonicalUrl": "",
+                },
+            }
+        )
+        async with httpx.AsyncClient() as client:
+            provider = ZyteFetchProvider(
+                ProviderSecrets({"ZYTE_API_KEY": "zyte-secret"}),
+                client,
+            )
+            result = await provider.fetch_url(_TARGET_URL)
+
+    assert result.url == ""
+    assert result.title == ""
+
+
 async def test_zyte_preserves_present_empty_metadata() -> None:
     with respx.mock(assert_all_called=True) as router:
         router.post(_EXTRACT_URL).respond(
@@ -175,20 +199,33 @@ async def test_zyte_rejects_empty_or_missing_content(
 
 
 @pytest.mark.parametrize(
-    ("status_code", "error_type", "message"),
+    ("status_code", "response_message", "error_type", "message"),
     [
-        (401, ErrorType.API_ERROR, "Invalid API key"),
-        (429, ErrorType.RATE_LIMIT, "Rate limit exceeded for zyte"),
+        (401, "bad credentials", ErrorType.API_ERROR, "Invalid API key"),
+        (
+            403,
+            "forbidden",
+            ErrorType.API_ERROR,
+            "API key does not have access to this endpoint",
+        ),
+        (429, "too many", ErrorType.RATE_LIMIT, "Rate limit exceeded for zyte"),
+        (
+            503,
+            "overloaded",
+            ErrorType.PROVIDER_ERROR,
+            "zyte API internal error (503): overloaded",
+        ),
     ],
 )
 async def test_zyte_maps_http_errors(
     status_code: int,
+    response_message: str,
     error_type: ErrorType,
     message: str,
 ) -> None:
     with respx.mock(assert_all_called=True) as router:
         router.post(_EXTRACT_URL).respond(
-            status_code, json={"message": message}
+            status_code, json={"message": response_message}
         )
         async with httpx.AsyncClient() as client:
             provider = ZyteFetchProvider(
@@ -200,6 +237,24 @@ async def test_zyte_maps_http_errors(
 
     assert error_info.value.error_type is error_type
     assert str(error_info.value) == message
+
+
+async def test_zyte_maps_transport_errors() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("connection refused", request=request)
+
+    async with httpx.AsyncClient(
+        transport=httpx.MockTransport(handler)
+    ) as client:
+        provider = ZyteFetchProvider(
+            ProviderSecrets({"ZYTE_API_KEY": "zyte-secret"}),
+            client,
+        )
+        with pytest.raises(ProviderError) as error_info:
+            await provider.fetch_url(_TARGET_URL)
+
+    assert error_info.value.error_type is ErrorType.PROVIDER_ERROR
+    assert str(error_info.value) == "connection refused"
 
 
 def test_zyte_registers_and_gates(monkeypatch: pytest.MonkeyPatch) -> None:
