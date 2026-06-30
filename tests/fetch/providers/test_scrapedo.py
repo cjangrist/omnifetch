@@ -79,10 +79,28 @@ async def test_scrapedo_rejects_empty_content() -> None:
     [
         (401, {"message": "bad token"}, ErrorType.API_ERROR, "Invalid API key"),
         (
+            403,
+            {"message": "forbidden"},
+            ErrorType.API_ERROR,
+            "API key does not have access to this endpoint",
+        ),
+        (
+            404,
+            {"message": "gone"},
+            ErrorType.API_ERROR,
+            "scrapedo endpoint not found (404): gone",
+        ),
+        (
             429,
             {"message": "too many requests"},
             ErrorType.RATE_LIMIT,
             "Rate limit exceeded for scrapedo",
+        ),
+        (
+            500,
+            {"message": "down"},
+            ErrorType.PROVIDER_ERROR,
+            "scrapedo API internal error (500): down",
         ),
     ],
 )
