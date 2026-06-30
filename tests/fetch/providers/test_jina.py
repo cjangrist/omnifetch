@@ -132,6 +132,71 @@ async def test_jina_rejects_missing_content(
     )
 
 
+@pytest.mark.parametrize(
+    ("payload", "error_type", "message"),
+    [
+        (
+            {"code": 422, "data": None},
+            ErrorType.API_ERROR,
+            "Jina API error (code=422)",
+        ),
+        (
+            {"code": 429, "data": None},
+            ErrorType.RATE_LIMIT,
+            "Rate limit exceeded for jina",
+        ),
+    ],
+)
+async def test_jina_rejects_application_error_codes(
+    payload: dict[str, object],
+    error_type: ErrorType,
+    message: str,
+) -> None:
+    with respx.mock(assert_all_called=True) as router:
+        router.post(_JINA_URL).respond(json=payload)
+        async with httpx.AsyncClient() as client:
+            provider = JinaFetchProvider(
+                ProviderSecrets({"JINA_API_KEY": "jina-secret"}),
+                client,
+            )
+            with pytest.raises(ProviderError) as error_info:
+                await provider.fetch_url(_TARGET_URL)
+
+    assert error_info.value.error_type is error_type
+    assert str(error_info.value) == message
+
+
+@pytest.mark.parametrize(
+    ("status_code", "error_type", "message"),
+    [
+        (401, ErrorType.API_ERROR, "Invalid API key"),
+        (429, ErrorType.RATE_LIMIT, "Rate limit exceeded for jina"),
+        (
+            500,
+            ErrorType.PROVIDER_ERROR,
+            "jina API internal error (500): down",
+        ),
+    ],
+)
+async def test_jina_maps_http_errors(
+    status_code: int,
+    error_type: ErrorType,
+    message: str,
+) -> None:
+    with respx.mock(assert_all_called=True) as router:
+        router.post(_JINA_URL).respond(status_code, json={"message": "down"})
+        async with httpx.AsyncClient() as client:
+            provider = JinaFetchProvider(
+                ProviderSecrets({"JINA_API_KEY": "jina-secret"}),
+                client,
+            )
+            with pytest.raises(ProviderError) as error_info:
+                await provider.fetch_url(_TARGET_URL)
+
+    assert error_info.value.error_type is error_type
+    assert str(error_info.value) == message
+
+
 def test_jina_registers_and_gates(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

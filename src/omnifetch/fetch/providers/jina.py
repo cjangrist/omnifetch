@@ -6,7 +6,7 @@ from pydantic import BaseModel, ConfigDict
 
 from omnifetch.fetch.providers.base import FetchProvider
 from omnifetch.fetch.shared.http import http_json
-from omnifetch.fetch.shared.types import FetchResult
+from omnifetch.fetch.shared.types import ErrorType, FetchResult, ProviderError
 from omnifetch.fetch.shared.util import (
     handle_provider_error,
     validate_api_key,
@@ -14,6 +14,9 @@ from omnifetch.fetch.shared.util import (
 
 _API_KEY_ENV_NAME = "JINA_API_KEY"
 _TIMEOUT_MS = 30_000
+_HTTP_OK_MIN = 200
+_HTTP_OK_MAX = 300
+_HTTP_TOO_MANY_REQUESTS = 429
 
 
 class _JinaUsage(BaseModel):
@@ -53,6 +56,26 @@ def _metadata_from_usage(usage: _JinaUsage | None) -> dict[str, int] | None:
     return {"tokens": usage.tokens}
 
 
+def _raise_for_application_code(
+    response: _JinaReaderResponse, provider: str
+) -> None:
+    """Map Jina response-envelope status codes to provider errors."""
+    code = response.code
+    if code is None or _HTTP_OK_MIN <= code < _HTTP_OK_MAX:
+        return
+    if code == _HTTP_TOO_MANY_REQUESTS:
+        raise ProviderError(
+            ErrorType.RATE_LIMIT,
+            f"Rate limit exceeded for {provider}",
+            provider,
+        )
+    raise ProviderError(
+        ErrorType.API_ERROR,
+        f"Jina API error (code={code})",
+        provider,
+    )
+
+
 class JinaFetchProvider(FetchProvider):
     """Fetch clean markdown using Jina Reader API."""
 
@@ -87,6 +110,7 @@ class JinaFetchProvider(FetchProvider):
                 json={"url": url},
                 timeout_s=self.timeout_s,
             )
+            _raise_for_application_code(response, self.name)
             if response.data is None:
                 raise ValueError("Jina Reader returned no content")
             if not response.data.content:
