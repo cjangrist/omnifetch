@@ -98,12 +98,12 @@ async def test_scrapegraphai_requires_key() -> None:
         (
             {
                 "request_id": "request-1",
-                "status": "queued",
+                "status": "failed",
                 "website_url": _TARGET_URL,
-                "result": _MARKDOWN,
+                "result": None,
                 "error": "",
             },
-            "Failed to fetch URL content: ScrapeGraphAI failed: queued",
+            "Failed to fetch URL content: ScrapeGraphAI failed: unknown error",
         ),
         (
             {
@@ -145,6 +145,34 @@ async def test_scrapegraphai_rejects_failed_or_empty_results(
 
     assert error_info.value.error_type is ErrorType.API_ERROR
     assert str(error_info.value) == message
+
+
+async def test_scrapegraphai_accepts_non_failed_status_with_result() -> None:
+    with respx.mock(assert_all_called=True) as router:
+        router.post(_MARKDOWNIFY_URL).respond(
+            json={
+                "request_id": "request-1",
+                "status": "queued",
+                "result": _MARKDOWN,
+                "error": "",
+            }
+        )
+        async with httpx.AsyncClient() as client:
+            provider = ScrapeGraphAIFetchProvider(
+                ProviderSecrets(
+                    {"SCRAPEGRAPHAI_API_KEY": "scrapegraphai-secret"}
+                ),
+                client,
+            )
+            result = await provider.fetch_url(_TARGET_URL)
+
+    assert result == FetchResult(
+        url=_TARGET_URL,
+        title="ScrapeGraphAI",
+        content=_MARKDOWN,
+        source_provider="scrapegraphai",
+        metadata={"request_id": "request-1"},
+    )
 
 
 async def test_scrapegraphai_maps_http_errors() -> None:

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict
 
 from omnifetch.fetch.providers.base import FetchProvider
 from omnifetch.fetch.shared.html import extract_markdown_title
@@ -22,9 +22,9 @@ class _ScrapeGraphAIMarkdownifyResponse(BaseModel):
 
     model_config = ConfigDict(extra="ignore")
 
-    request_id: str = Field(validation_alias="request_id")
+    request_id: str
     status: str
-    website_url: str = Field(validation_alias="website_url")
+    website_url: str | None = None
     result: str | None = None
     error: str = ""
 
@@ -58,10 +58,9 @@ class ScrapeGraphAIFetchProvider(FetchProvider):
                 json={"website_url": url},
                 timeout_s=self.timeout_s,
             )
-            if data.status != "completed" or data.error:
+            if data.status == "failed" or data.error:
                 raise ValueError(
-                    "ScrapeGraphAI failed: "
-                    f"{data.error or data.status or 'unknown error'}"
+                    f"ScrapeGraphAI failed: {data.error or 'unknown error'}"
                 )
             if not data.result:
                 raise ValueError("ScrapeGraphAI returned empty result")
