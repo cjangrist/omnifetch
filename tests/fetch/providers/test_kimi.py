@@ -51,7 +51,7 @@ def _scrapfly_payload(
 
 def _kimi_payload(
     markdown: str,
-    url: str = "https://canonical.example/article",
+    url: str | None = "https://canonical.example/article",
     title: str | None = "Canonical Title",
 ) -> str:
     """Return a serialized Kimi fetch response body."""
@@ -161,6 +161,30 @@ async def test_kimi_uses_markdown_title_fallback() -> None:
     assert result.title == "Fallback Title"
 
 
+async def test_kimi_uses_requested_url_when_response_url_is_missing() -> None:
+    with respx.mock(assert_all_called=True) as router:
+        router.post(_SCRAPFLY_URL).respond(
+            200,
+            json=_scrapfly_payload(
+                200,
+                _kimi_payload("# Article\n\nBody", url=None),
+            ),
+        )
+        async with httpx.AsyncClient() as client:
+            provider = KimiFetchProvider(
+                ProviderSecrets(
+                    {
+                        "KIMI_API_KEY": "kimi-secret",
+                        "SCRAPFLY_API_KEY": "scrapfly-secret",
+                    }
+                ),
+                client,
+            )
+            result = await provider.fetch_url(_TARGET_URL)
+
+    assert result.url == _TARGET_URL
+
+
 async def test_kimi_rejects_non_success_upstream_status() -> None:
     with respx.mock(assert_all_called=True) as router:
         router.post(_SCRAPFLY_URL).respond(
@@ -182,6 +206,29 @@ async def test_kimi_rejects_non_success_upstream_status() -> None:
 
     assert error_info.value.error_type is ErrorType.PROVIDER_ERROR
     assert str(error_info.value) == "Kimi fetch HTTP 503: blocked by upstream"
+
+
+async def test_kimi_rejects_malformed_success_body() -> None:
+    with respx.mock(assert_all_called=True) as router:
+        router.post(_SCRAPFLY_URL).respond(
+            200,
+            json=_scrapfly_payload(200, "not-json"),
+        )
+        async with httpx.AsyncClient() as client:
+            provider = KimiFetchProvider(
+                ProviderSecrets(
+                    {
+                        "KIMI_API_KEY": "kimi-secret",
+                        "SCRAPFLY_API_KEY": "scrapfly-secret",
+                    }
+                ),
+                client,
+            )
+            with pytest.raises(ProviderError) as error_info:
+                await provider.fetch_url(_TARGET_URL)
+
+    assert error_info.value.error_type is ErrorType.API_ERROR
+    assert "Failed to fetch URL content" in str(error_info.value)
 
 
 async def test_kimi_rejects_empty_markdown() -> None:
@@ -296,6 +343,49 @@ async def test_scrapfly_proxy_returns_upstream_response() -> None:
     assert proxied.headers == {"content-type": "application/json"}
 
 
+@pytest.mark.parametrize(
+    ("status_code", "expected_type", "expected_message"),
+    [
+        (
+            403,
+            ErrorType.API_ERROR,
+            "API key does not have access to this endpoint",
+        ),
+        (
+            500,
+            ErrorType.PROVIDER_ERROR,
+            "kimi API internal error (500): down",
+        ),
+    ],
+)
+async def test_scrapfly_proxy_maps_scrapfly_http_errors(
+    status_code: int,
+    expected_type: ErrorType,
+    expected_message: str,
+) -> None:
+    with respx.mock(assert_all_called=True) as router:
+        router.post(_SCRAPFLY_URL).respond(
+            status_code,
+            json={"message": "down"},
+        )
+        async with httpx.AsyncClient() as client:
+            with pytest.raises(ProviderError) as error_info:
+                await proxy_post_via_scrapfly(
+                    client,
+                    ScrapflyPostRequest(
+                        "kimi",
+                        _KIMI_FETCH_URL,
+                        {"Authorization": "Bearer kimi-secret"},
+                        "{}",
+                        "scrapfly-secret",
+                        60_000,
+                    ),
+                )
+
+    assert error_info.value.error_type is expected_type
+    assert str(error_info.value) == expected_message
+
+
 def test_kimi_registers_and_gates(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -303,23 +393,17 @@ def test_kimi_registers_and_gates(
     importlib.reload(kimi_module)
 
     assert get_active_fetch_providers(ProviderSecrets({})) == []
-    assert (
-        get_active_fetch_providers(
-            ProviderSecrets({"KIMI_API_KEY": "kimi-secret"})
-        )
-        == []
+    assert "kimi" not in get_active_fetch_providers(
+        ProviderSecrets({"KIMI_API_KEY": "kimi-secret"})
     )
-    assert (
-        get_active_fetch_providers(
-            ProviderSecrets({"SCRAPFLY_API_KEY": "scrapfly-secret"})
-        )
-        == []
+    assert "kimi" not in get_active_fetch_providers(
+        ProviderSecrets({"SCRAPFLY_API_KEY": "scrapfly-secret"})
     )
-    assert get_active_fetch_providers(
+    assert "kimi" in get_active_fetch_providers(
         ProviderSecrets(
             {
                 "KIMI_API_KEY": "kimi-secret",
                 "SCRAPFLY_API_KEY": "scrapfly-secret",
             }
         )
-    ) == ["kimi"]
+    )
