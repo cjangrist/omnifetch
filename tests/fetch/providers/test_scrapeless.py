@@ -112,10 +112,23 @@ async def test_scrapeless_rejects_failed_or_empty_response(
     assert str(error_info.value) == message
 
 
-async def test_scrapeless_maps_http_errors() -> None:
+@pytest.mark.parametrize(
+    ("status_code", "error_type", "message"),
+    [
+        (401, ErrorType.API_ERROR, "Invalid API key"),
+        (429, ErrorType.RATE_LIMIT, "Rate limit exceeded for scrapeless"),
+    ],
+)
+async def test_scrapeless_maps_http_errors(
+    status_code: int,
+    error_type: ErrorType,
+    message: str,
+) -> None:
     """Scrapeless HTTP statuses use the shared HTTP taxonomy."""
     with respx.mock(assert_all_called=True) as router:
-        router.post(_UNLOCKER_URL).respond(401, json={"message": "bad key"})
+        router.post(_UNLOCKER_URL).respond(
+            status_code, json={"message": "bad key"}
+        )
         async with httpx.AsyncClient() as client:
             provider = ScrapelessFetchProvider(
                 ProviderSecrets({"SCRAPELESS_API_KEY": "scrapeless-secret"}),
@@ -124,8 +137,8 @@ async def test_scrapeless_maps_http_errors() -> None:
             with pytest.raises(ProviderError) as error_info:
                 await provider.fetch_url(_TARGET_URL)
 
-    assert error_info.value.error_type is ErrorType.API_ERROR
-    assert str(error_info.value) == "Invalid API key"
+    assert error_info.value.error_type is error_type
+    assert str(error_info.value) == message
 
 
 def test_scrapeless_registers_and_gates(
