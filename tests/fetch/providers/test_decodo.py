@@ -82,6 +82,38 @@ async def test_decodo_requires_key() -> None:
     assert str(error_info.value) == "API key not found for decodo"
 
 
+async def test_decodo_returns_markdown_despite_target_status_code() -> None:
+    """Decodo parity follows content presence, not scraped target status."""
+    with respx.mock(assert_all_called=True) as router:
+        router.post(_BASE_URL).respond(
+            200,
+            json={
+                "results": [
+                    {
+                        "content": "# Access Denied\n\nBody",
+                        "status_code": 404,
+                        "task_id": "task-404",
+                    }
+                ]
+            },
+        )
+        async with httpx.AsyncClient() as client:
+            provider = DecodoFetchProvider(
+                ProviderSecrets(
+                    {"DECODO_WEB_SCRAPING_API_KEY": "encoded-token"}
+                ),
+                client,
+            )
+            result = await provider.fetch_url(_TARGET_URL)
+
+    assert result == FetchResult(
+        url=_TARGET_URL,
+        title="Access Denied",
+        content="# Access Denied\n\nBody",
+        source_provider="decodo",
+    )
+
+
 @pytest.mark.parametrize(
     "payload",
     [
@@ -111,10 +143,48 @@ async def test_decodo_rejects_empty_results(
     )
 
 
-async def test_decodo_maps_http_errors() -> None:
+@pytest.mark.parametrize(
+    ("status_code", "response_message", "error_type", "message"),
+    [
+        (401, "bad key", ErrorType.API_ERROR, "Invalid API key"),
+        (
+            403,
+            "forbidden",
+            ErrorType.API_ERROR,
+            "API key does not have access to this endpoint",
+        ),
+        (
+            404,
+            "missing",
+            ErrorType.API_ERROR,
+            "decodo endpoint not found (404): missing",
+        ),
+        (
+            429,
+            "too many",
+            ErrorType.RATE_LIMIT,
+            "Rate limit exceeded for decodo",
+        ),
+        (
+            503,
+            "down",
+            ErrorType.PROVIDER_ERROR,
+            "decodo API internal error (503): down",
+        ),
+    ],
+)
+async def test_decodo_maps_http_errors(
+    status_code: int,
+    response_message: str,
+    error_type: ErrorType,
+    message: str,
+) -> None:
     """Decodo HTTP statuses use the shared HTTP taxonomy."""
     with respx.mock(assert_all_called=True) as router:
-        router.post(_BASE_URL).respond(401, json={"message": "bad key"})
+        router.post(_BASE_URL).respond(
+            status_code,
+            json={"message": response_message},
+        )
         async with httpx.AsyncClient() as client:
             provider = DecodoFetchProvider(
                 ProviderSecrets(
@@ -125,8 +195,8 @@ async def test_decodo_maps_http_errors() -> None:
             with pytest.raises(ProviderError) as error_info:
                 await provider.fetch_url(_TARGET_URL)
 
-    assert error_info.value.error_type is ErrorType.API_ERROR
-    assert str(error_info.value) == "Invalid API key"
+    assert error_info.value.error_type is error_type
+    assert str(error_info.value) == message
 
 
 def test_decodo_registers_and_gates(
