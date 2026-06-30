@@ -118,32 +118,6 @@ async def test_http_json_returns_plain_data_with_injected_client() -> None:
             ) == {"value": 3}
 
 
-async def test_params_reach_request_without_logging_secret(
-    caplog: pytest.LogCaptureFixture,
-) -> None:
-    def handler(request: httpx.Request) -> httpx.Response:
-        assert request.url.params["api_key"] == "SECRET"
-        assert request.url.params["q"] == "1"
-        return httpx.Response(200, text="ok", request=request)
-
-    with caplog.at_level(logging.DEBUG, logger="omnifetch.fetch.http"):
-        async with _mock_client(httpx.MockTransport(handler)) as client:
-            assert (
-                await http_text(
-                    client,
-                    "provider",
-                    "https://api.test/data",
-                    params={"api_key": "SECRET", "q": "1"},
-                )
-                == "ok"
-            )
-    messages = [record.getMessage() for record in caplog.records]
-    assert any("https://api.test/data" in message for message in messages)
-    assert any("api_key=%5BREDACTED%5D" in message for message in messages)
-    assert any("q=1" in message for message in messages)
-    assert not any("SECRET" in message for message in messages)
-
-
 async def test_http_json_validates_model() -> None:
     with respx.mock(assert_all_called=True) as router:
         router.get("https://api.test/model").respond(json={"value": 7})

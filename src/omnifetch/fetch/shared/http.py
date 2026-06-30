@@ -50,7 +50,6 @@ class _RequestOptions:
     """Keyword options passed through to ``httpx.AsyncClient.stream``."""
 
     method: str = "GET"
-    params: Any = None
     headers: dict[str, str] | None = None
     params: Any = None
     content: str | bytes | None = None
@@ -219,7 +218,6 @@ async def _do_request(
         async with client.stream(
             options.method,
             url,
-            params=options.params,
             headers=options.headers,
             params=options.params,
             content=options.content,
