@@ -99,13 +99,6 @@ def _redact(url: str) -> str:
         return url[:200]
 
 
-def _log_url(url: str, params: Any) -> str:
-    """Return the URL shape used for safe request logs."""
-    if params is None:
-        return url
-    return str(httpx.URL(url).copy_merge_params(params))
-
-
 async def _read_capped(response: httpx.Response, provider: str) -> str:
     """Read a response stream while enforcing the maximum byte count."""
     try:
@@ -206,9 +199,7 @@ async def _do_request(
     options: _RequestOptions,
 ) -> tuple[str, int]:
     """Perform one HTTP attempt and map outcomes to ``ProviderError``."""
-    _LOGGER.debug(
-        "HTTP %s %s", options.method, _redact(_log_url(url, options.params))
-    )
+    _LOGGER.debug("HTTP %s request", options.method)
     timeout = (
         options.timeout_s
         if options.timeout_s is not None
