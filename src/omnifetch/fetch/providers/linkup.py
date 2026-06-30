@@ -22,7 +22,7 @@ class _LinkupFetchResponse(BaseModel):
 
     model_config = ConfigDict(extra="ignore")
 
-    markdown: str = ""
+    markdown: str | None = None
 
 
 class LinkupFetchProvider(FetchProvider):

@@ -73,10 +73,33 @@ async def test_linkup_requires_key() -> None:
     assert str(error_info.value) == "API key not found for linkup"
 
 
+async def test_linkup_returns_empty_title_without_heading() -> None:
+    """Linkup leaves title empty when markdown has no H1 heading."""
+    with respx.mock(assert_all_called=True) as router:
+        router.post(_FETCH_URL).respond(
+            200,
+            json={"markdown": "No heading here."},
+        )
+        async with httpx.AsyncClient() as client:
+            provider = LinkupFetchProvider(
+                ProviderSecrets({"LINKUP_API_KEY": "linkup-secret"}),
+                client,
+            )
+            result = await provider.fetch_url("https://example.test/article")
+
+    assert result == FetchResult(
+        url="https://example.test/article",
+        title="",
+        content="No heading here.",
+        source_provider="linkup",
+    )
+
+
 @pytest.mark.parametrize(
     "payload",
     [
         {"markdown": ""},
+        {"markdown": None},
         {},
     ],
 )
