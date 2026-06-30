@@ -329,6 +329,8 @@ async def test_params_reach_request_without_secret_logs(
     assert any(
         "HTTP GET https://api.test/data" in message for message in messages
     )
+    assert any("api_key=%5BREDACTED%5D" in message for message in messages)
+    assert any("q=1" in message for message in messages)
     assert not any("SECRET" in message for message in messages)
 
 

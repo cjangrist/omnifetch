@@ -14,7 +14,6 @@ from typing import Any, overload, TypeVar
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 import httpx
-from httpx._types import QueryParamTypes
 from pydantic import BaseModel
 from tenacity import (
     AsyncRetrying,
@@ -52,7 +51,7 @@ class _RequestOptions:
 
     method: str = "GET"
     headers: dict[str, str] | None = None
-    params: QueryParamTypes | None = None
+    params: Any = None
     content: str | bytes | None = None
     json: Any = None
     timeout_s: float | None = None
@@ -98,6 +97,13 @@ def _redact(url: str) -> str:
         ]
     except ValueError:
         return url[:200]
+
+
+def _log_url(url: str, params: Any) -> str:
+    """Return the URL shape used for safe request logs."""
+    if params is None:
+        return url
+    return str(httpx.URL(url).copy_merge_params(params))
 
 
 async def _read_capped(response: httpx.Response, provider: str) -> str:
@@ -200,7 +206,9 @@ async def _do_request(
     options: _RequestOptions,
 ) -> tuple[str, int]:
     """Perform one HTTP attempt and map outcomes to ``ProviderError``."""
-    _LOGGER.debug("HTTP %s %s", options.method, _redact(url))
+    _LOGGER.debug(
+        "HTTP %s %s", options.method, _redact(_log_url(url, options.params))
+    )
     timeout = (
         options.timeout_s
         if options.timeout_s is not None
