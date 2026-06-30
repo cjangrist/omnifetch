@@ -25,7 +25,6 @@ class _OxylabsResult(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
     content: str | None = None
-    status_code: int | None = None
 
 
 class _OxylabsResponse(BaseModel):
