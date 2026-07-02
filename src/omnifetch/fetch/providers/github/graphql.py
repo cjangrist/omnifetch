@@ -9,6 +9,7 @@ from typing import Any
 
 from omnifetch.fetch.providers.github.constants import (
     AI_RULES_DIRS,
+    CONTEXT_ALIAS_MAP,
     DEP_CONFIG_ALLOWLIST,
     MAX_TREE_CHILDREN_DIRS,
     NOISY_DIR_NAMES,
@@ -154,7 +155,7 @@ def _build_context_file_aliases() -> str:
     context = [
         f'{alias}: object(expression: "HEAD:{name}") '
         "{ ... on Blob { text byteSize } }"
-        for name, alias in _context_alias_map().items()
+        for name, alias in CONTEXT_ALIAS_MAP.items()
     ]
     detect = [
         f'{name.replace(".", "_").lower()}: object(expression: "HEAD:{name}") '
@@ -172,29 +173,6 @@ def _build_context_file_aliases() -> str:
         for name, (alias, _) in DEP_CONFIG_ALLOWLIST.items()
     ]
     return "\n    ".join([*context, *detect, *rules, *deps])
-
-
-def _context_alias_map() -> dict[str, str]:
-    return {
-        "CLAUDE.md": "claude_md",
-        "AGENTS.md": "agents_md",
-        "GEMINI.md": "gemini_md",
-        "AGENT.md": "agent_md",
-        "ARCHITECTURE.md": "architecture_md",
-        "DEVELOPMENT.md": "development_md",
-        "CONVENTIONS.md": "conventions_md",
-        "REVIEW.md": "review_md",
-        ".cursorrules": "cursorrules",
-        ".windsurfrules": "windsurfrules",
-        ".clinerules": "clinerules",
-        ".goosehints": "goosehints",
-        ".roorules": "roorules",
-        ".continuerules": "continuerules",
-        ".github/copilot-instructions.md": "copilot_md",
-        ".junie/guidelines.md": "junie_guidelines",
-        "llms.txt": "llms_txt",
-        "llms-full.txt": "llms_full_txt",
-    }
 
 
 def _escape_gql_path(path: str) -> str:

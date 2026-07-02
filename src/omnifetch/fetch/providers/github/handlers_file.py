@@ -410,7 +410,7 @@ def _file_result(
     content = (
         f"# {file_path or 'File'}\n\n"
         f"**Repository:** {owner}/{repo}\n**Branch:** `{ref or 'default'}`\n"
-        f"**Size:** {format_size(len(raw_content))}\n\n---\n\n"
+        f"**Size:** {format_size(len(raw_content.encode('utf-8')))}\n\n---\n\n"
         f"`````{file_ext}\n{raw_content}\n`````\n\n---\n"
         "*Fetched via GitHub API*\n"
     )
@@ -437,7 +437,7 @@ def _raw_file_result(
         if path and "/" in path and _is_readme_file_name(file_name)
         else (
             f"# {file_name}\n\n**Repository:** {owner}/{repo}\n**Ref:** `{ref}`\n"
-            f"**Size:** {format_size(len(raw))}\n\n---\n\n`````{file_ext}\n{raw}\n`````\n\n"
+            f"**Size:** {format_size(len(raw.encode('utf-8')))}\n\n---\n\n`````{file_ext}\n{raw}\n`````\n\n"
             "---\n*Fetched via GitHub raw URL*\n"
         )
     )

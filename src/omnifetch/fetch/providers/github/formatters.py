@@ -37,7 +37,8 @@ _PROVIDER_SECTION = re.compile(
     r"|\.(?:github|cursor|windsurf|roo|amazonq|augment|continue|trae|agents|"
     r"junie)/"
     r"|(?:Recent Commits|Commit Activity|Open Issues|Open Pull Requests|"
-    r"Recent Releases|AI Rules Files|AI Context Files|Package Manifests|llms)"
+    r"Recent Releases|AI Rules Files|AI Context Files|Package Manifests)$"
+    r"|llms"
     r")"
 )
 

@@ -127,6 +127,30 @@ AI_RULES_DIRS = {
 }
 
 CONTEXT_FILE_NAMES = tuple(CONTEXT_FILE_LIMITS)
+
+# Single source of truth for context-file -> GraphQL alias mapping, shared by
+# the query builder (graphql.py) and the response parser (repo_overview.py).
+CONTEXT_ALIAS_MAP = {
+    "CLAUDE.md": "claude_md",
+    "AGENTS.md": "agents_md",
+    "GEMINI.md": "gemini_md",
+    "AGENT.md": "agent_md",
+    "ARCHITECTURE.md": "architecture_md",
+    "DEVELOPMENT.md": "development_md",
+    "CONVENTIONS.md": "conventions_md",
+    "REVIEW.md": "review_md",
+    ".cursorrules": "cursorrules",
+    ".windsurfrules": "windsurfrules",
+    ".clinerules": "clinerules",
+    ".goosehints": "goosehints",
+    ".roorules": "roorules",
+    ".continuerules": "continuerules",
+    ".github/copilot-instructions.md": "copilot_md",
+    ".junie/guidelines.md": "junie_guidelines",
+    "llms.txt": "llms_txt",
+    "llms-full.txt": "llms_full_txt",
+}
+
 README_TOKEN_CAP = 5_000
 README_CHAR_CAP = README_TOKEN_CAP * 4
 README_MAX_BYTES = 500_000

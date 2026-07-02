@@ -19,6 +19,7 @@ from omnifetch.fetch.providers.github.api import (
 from omnifetch.fetch.providers.github.constants import (
     AI_RULES_DIRS,
     AI_RULES_INLINE_MAX_BYTES,
+    CONTEXT_ALIAS_MAP,
     CONTEXT_FILE_LIMITS,
     CONTEXT_FILE_NAMES,
     DEP_CONFIG_ALLOWLIST,
@@ -764,7 +765,7 @@ def _extract_gql_context_files(
 ) -> tuple[dict[str, TextFile], list[str]]:
     context: dict[str, TextFile] = {}
     too_large: list[str] = []
-    for name, alias in _context_alias_map().items():
+    for name, alias in CONTEXT_ALIAS_MAP.items():
         blob = extract_gql_blob(
             repository.get(alias), CONTEXT_FILE_LIMITS[name]
         )
@@ -1008,29 +1009,6 @@ def _rest_release(release: dict[str, Any]) -> RepoRelease:
         bool(release.get("prerelease")),
         str(release.get("body", "") or ""),
     )
-
-
-def _context_alias_map() -> dict[str, str]:
-    return {
-        "CLAUDE.md": "claude_md",
-        "AGENTS.md": "agents_md",
-        "GEMINI.md": "gemini_md",
-        "AGENT.md": "agent_md",
-        "ARCHITECTURE.md": "architecture_md",
-        "DEVELOPMENT.md": "development_md",
-        "CONVENTIONS.md": "conventions_md",
-        "REVIEW.md": "review_md",
-        ".cursorrules": "cursorrules",
-        ".windsurfrules": "windsurfrules",
-        ".clinerules": "clinerules",
-        ".goosehints": "goosehints",
-        ".roorules": "roorules",
-        ".continuerules": "continuerules",
-        ".github/copilot-instructions.md": "copilot_md",
-        ".junie/guidelines.md": "junie_guidelines",
-        "llms.txt": "llms_txt",
-        "llms-full.txt": "llms_full_txt",
-    }
 
 
 def _gql_extra_detected(repository: dict[str, Any]) -> list[str]:

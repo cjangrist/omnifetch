@@ -1830,6 +1830,43 @@ async def test_github_org_profile_uses_org_repos_endpoint() -> None:
     assert "Repositories" in result.content
 
 
+def test_github_readme_boundary_ignores_prose_headings() -> None:
+    content = (
+        "## README\n\nintro text\n"
+        "## Open Issues & Roadmap\nstill readme content here\n"
+        "## AGENTS.md\n\nprovider section\n"
+    )
+    body_start = content.index("## README\n\n") + len("## README\n\n")
+    assert github_formatters._find_readme_end(content, body_start) == (
+        content.index("## AGENTS.md")
+    )
+
+    exact = "## README\n\nintro\n## Open Issues\nprovider\n"
+    exact_body = exact.index("## README\n\n") + len("## README\n\n")
+    assert github_formatters._find_readme_end(exact, exact_body) == (
+        exact.index("## Open Issues")
+    )
+
+
+async def test_github_file_size_reports_bytes() -> None:
+    with respx.mock(assert_all_called=True) as router:
+        router.get(f"{API_BASE_URL}/repos/octo/repo/contents/note.txt").respond(
+            content="café"
+        )
+        async with httpx.AsyncClient() as client:
+            result = await fetch_file(
+                client,
+                _TOKEN,
+                API_BASE_URL,
+                _OWNER,
+                _REPO,
+                None,
+                "note.txt",
+                1.0,
+            )
+    assert "**Size:** 5 B" in result.content
+
+
 def _mock_rest_overview(router: respx.Router, tree: dict[str, object]) -> None:
     router.get(f"{API_BASE_URL}/repos/octo/repo").respond(json=_repo_payload())
     router.get(f"{API_BASE_URL}/repos/octo/repo/readme").respond(
