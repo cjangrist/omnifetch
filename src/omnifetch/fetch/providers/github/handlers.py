@@ -370,18 +370,21 @@ async def fetch_user_profile(
     token: str,
     base_url: str,
     username: str,
+    is_org: bool,
     timeout_s: float,
 ) -> FetchResult:
     """Fetch a GitHub user or organization profile."""
-    user = await github_get(
-        client, token, base_url, f"/users/{username}", timeout_s
-    )
-    endpoint = (
+    # The repos endpoint depends only on whether the URL was an org route, so
+    # the profile and repos calls run concurrently instead of serially.
+    repos_endpoint = (
         f"/orgs/{username}/repos?sort=updated&per_page={LIST_PER_PAGE}"
-        if user.get("type") == "Organization"
+        if is_org
         else f"/users/{username}/repos?sort=updated&per_page={LIST_PER_PAGE}"
     )
-    repos = await github_get_safe(client, token, base_url, endpoint, timeout_s)
+    user, repos = await asyncio.gather(
+        github_get(client, token, base_url, f"/users/{username}", timeout_s),
+        github_get_safe(client, token, base_url, repos_endpoint, timeout_s),
+    )
     content = _user_profile_content(user, _list(repos))
     return FetchResult(
         url=str(user.get("html_url", "")),

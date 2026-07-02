@@ -220,7 +220,12 @@ class GitHubFetchProvider(FetchProvider):
                 )
             case "user_profile" | "org_profile":
                 return await fetch_user_profile(
-                    self._client, token, self.base_url, owner, self.timeout_s
+                    self._client,
+                    token,
+                    self.base_url,
+                    owner,
+                    parsed.resource_type == "org_profile",
+                    self.timeout_s,
                 )
             case "gist":
                 return await fetch_gist(

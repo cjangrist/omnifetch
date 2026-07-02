@@ -369,24 +369,31 @@ async def _repo_data_from_rest(
     repo_mapping = _dict_value(repo_data)
     owner_login = str(_dict_value(repo_data, "owner").get("login", ""))
     repo_name = str(repo_mapping.get("name", ""))
-    context_files, dep_configs = await _fetch_rest_context_and_deps(
-        client,
-        token,
-        base_url,
-        owner_login,
-        repo_name,
-        tree_paths,
-        tree_truncated,
-        timeout_s,
-    )
-    ai_listing, ai_inline = await _fetch_rest_ai_rules(
-        client,
-        token,
-        base_url,
-        owner_login,
-        repo_name,
-        full_tree,
-        timeout_s,
+    # context/deps (from tree_paths) and ai-rules (from full_tree) are
+    # independent of each other — run them as one round instead of two.
+    (
+        (context_files, dep_configs),
+        (ai_listing, ai_inline),
+    ) = await asyncio.gather(
+        _fetch_rest_context_and_deps(
+            client,
+            token,
+            base_url,
+            owner_login,
+            repo_name,
+            tree_paths,
+            tree_truncated,
+            timeout_s,
+        ),
+        _fetch_rest_ai_rules(
+            client,
+            token,
+            base_url,
+            owner_login,
+            repo_name,
+            full_tree,
+            timeout_s,
+        ),
     )
     return _rest_data(
         repo_data,

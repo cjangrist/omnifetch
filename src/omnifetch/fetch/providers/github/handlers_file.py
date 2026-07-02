@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import re
 from urllib.parse import quote, unquote
 
@@ -198,27 +199,39 @@ async def fetch_wiki_page(
     """Fetch a GitHub wiki page from raw wiki storage."""
     title = unquote(page_slug).replace("-", " ")
     encoded_slug = "/".join(quote(part) for part in page_slug.split("/"))
-    for extension in (".md", "", ".mediawiki", ".asciidoc", ".rst"):
-        attempt_timeout_s = (
-            WIKI_PRIMARY_TIMEOUT_S if extension == ".md" else WIKI_ALT_TIMEOUT_S
-        )
-        raw = await _fetch_wiki_raw(
-            client,
-            token,
-            owner,
-            repo,
-            encoded_slug,
-            extension,
-            attempt_timeout_s,
-        )
-        if raw:
-            return FetchResult(
-                url=f"https://github.com/{owner}/{repo}/wiki/{page_slug}",
-                title=f"{title} - {owner}/{repo} Wiki",
-                content=f"# {title}\n\n**Wiki page** from [{owner}/{repo}](https://github.com/{owner}/{repo})\n\n---\n\n{raw}\n",
-                source_provider="github",
-                metadata={"resource_type": "wiki_page"},
+    # `.md` is the common case — try it alone first (still one round-trip on a
+    # hit). On a miss, fan the four fallback extensions out concurrently
+    # against the raw host (its own per-host semaphore) and take the first
+    # non-empty in priority order, collapsing 5 serial attempts into 2.
+    raw = await _fetch_wiki_raw(
+        client, token, owner, repo, encoded_slug, ".md", WIKI_PRIMARY_TIMEOUT_S
+    )
+    if not raw:
+        fallback_raws = await asyncio.gather(
+            *(
+                _fetch_wiki_raw(
+                    client,
+                    token,
+                    owner,
+                    repo,
+                    encoded_slug,
+                    extension,
+                    WIKI_ALT_TIMEOUT_S,
+                )
+                for extension in ("", ".mediawiki", ".asciidoc", ".rst")
             )
+        )
+        raw = next(
+            (candidate for candidate in fallback_raws if candidate), None
+        )
+    if raw:
+        return FetchResult(
+            url=f"https://github.com/{owner}/{repo}/wiki/{page_slug}",
+            title=f"{title} - {owner}/{repo} Wiki",
+            content=f"# {title}\n\n**Wiki page** from [{owner}/{repo}](https://github.com/{owner}/{repo})\n\n---\n\n{raw}\n",
+            source_provider="github",
+            metadata={"resource_type": "wiki_page"},
+        )
     return await fetch_repo_overview(
         client, token, base_url, owner, repo, timeout_s
     )
@@ -234,55 +247,59 @@ async def _resolve_ambiguous_ref_path(
     resource_type: str,
     timeout_s: float,
 ) -> FetchResult:
+    # Fetch for real per candidate split and return the first success — the
+    # probe+refetch of the old approach cost two round-trips on the common
+    # single-segment ref (e.g. /blob/main/README.md). try_order keeps
+    # index-0 first, then longest-first, matching GitHub's overlapping-branch
+    # resolution. All candidates failing falls through to a first-segment
+    # attempt whose error propagates to the caller.
     parts = combined.split("/")
     try_order = [0, *range(len(parts) - 1, 0, -1)]
     for index in dict.fromkeys(try_order):
-        try_ref = "/".join(parts[: index + 1])
-        try_path = "/".join(parts[index + 1 :])
         try:
-            await github_get(
-                client,
-                token,
-                base_url,
-                _contents_endpoint(owner, repo, try_path, try_ref),
-                timeout_s,
-            )
-        except Exception:
-            continue
-        if resource_type == "file":
-            return await fetch_file(
+            return await _fetch_resolved(
                 client,
                 token,
                 base_url,
                 owner,
                 repo,
-                try_ref,
-                try_path,
+                resource_type,
+                "/".join(parts[: index + 1]),
+                "/".join(parts[index + 1 :]),
                 timeout_s,
             )
-        return await fetch_directory(
-            client, token, base_url, owner, repo, try_ref, try_path, timeout_s
-        )
-    if resource_type == "file":
-        return await fetch_file(
-            client,
-            token,
-            base_url,
-            owner,
-            repo,
-            parts[0],
-            "/".join(parts[1:]),
-            timeout_s,
-        )
-    return await fetch_directory(
+        except Exception:
+            continue
+    return await _fetch_resolved(
         client,
         token,
         base_url,
         owner,
         repo,
+        resource_type,
         parts[0],
         "/".join(parts[1:]),
         timeout_s,
+    )
+
+
+async def _fetch_resolved(
+    client: httpx.AsyncClient,
+    token: str,
+    base_url: str,
+    owner: str,
+    repo: str,
+    resource_type: str,
+    ref: str,
+    path: str,
+    timeout_s: float,
+) -> FetchResult:
+    if resource_type == "file":
+        return await fetch_file(
+            client, token, base_url, owner, repo, ref, path, timeout_s
+        )
+    return await fetch_directory(
+        client, token, base_url, owner, repo, ref, path, timeout_s
     )
 
 

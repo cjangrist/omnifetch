@@ -843,7 +843,7 @@ async def test_github_release_commit_profile_gist_actions_handlers() -> None:
                 client, _TOKEN, API_BASE_URL, _OWNER, _REPO, "abc", 1.0
             )
             user = await fetch_user_profile(
-                client, _TOKEN, API_BASE_URL, "octo", 1.0
+                client, _TOKEN, API_BASE_URL, "octo", False, 1.0
             )
             gist = await fetch_gist(client, _TOKEN, API_BASE_URL, "abc123", 1.0)
             actions = await fetch_actions(
@@ -1275,18 +1275,9 @@ async def test_github_file_handler_root_readme_wiki_and_binary_branches(
 async def test_github_ambiguous_ref_resolution_branches(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    async def github_get_for_ambiguous_ref(
-        client: httpx.AsyncClient,
-        token: str,
-        base_url: str,
-        endpoint: str,
-        timeout_s: float,
-    ) -> dict[str, object]:
-        if endpoint.endswith("/contents/src/app.py?ref=feature"):
-            return {"name": "app.py"}
-        raise RuntimeError(endpoint)
-
-    async def fake_file(
+    # File: index-0 split (ref=feature, path=src/app.py) resolves on the first
+    # attempt — no probe, a single real fetch.
+    async def fake_file_index0(
         client: httpx.AsyncClient,
         token: str,
         base_url: str,
@@ -1296,17 +1287,16 @@ async def test_github_ambiguous_ref_resolution_branches(
         path: str | None,
         timeout_s: float,
     ) -> FetchResult:
-        return FetchResult(
-            url=f"https://github.com/{owner}/{repo}/blob/{ref}/{path}",
-            title=f"{ref}:{path}",
-            content="# file",
-            source_provider="github",
-        )
+        if ref == "feature" and path == "src/app.py":
+            return FetchResult(
+                url=f"https://github.com/{owner}/{repo}/blob/{ref}/{path}",
+                title=f"{ref}:{path}",
+                content="# file",
+                source_provider="github",
+            )
+        raise RuntimeError(f"{ref}:{path}")
 
-    monkeypatch.setattr(
-        github_handlers_file, "github_get", github_get_for_ambiguous_ref
-    )
-    monkeypatch.setattr(github_handlers_file, "fetch_file", fake_file)
+    monkeypatch.setattr(github_handlers_file, "fetch_file", fake_file_index0)
     async with httpx.AsyncClient() as client:
         result = await github_handlers_file._resolve_ambiguous_ref_path(
             client,
@@ -1320,6 +1310,30 @@ async def test_github_ambiguous_ref_resolution_branches(
         )
     assert result.title == "feature:src/app.py"
 
+    # Directory: earlier splits raise; the ref=feature/src, path=app.py split
+    # wins — exercises the skip-and-continue ordering.
+    async def fake_dir_index1(
+        client: httpx.AsyncClient,
+        token: str,
+        base_url: str,
+        owner: str,
+        repo: str,
+        ref: str | None,
+        path: str | None,
+        timeout_s: float,
+    ) -> FetchResult:
+        if ref == "feature/src" and path == "app.py":
+            return FetchResult(
+                url=f"https://github.com/{owner}/{repo}/tree/{ref}/{path}",
+                title=f"{ref}:{path}",
+                content="# directory",
+                source_provider="github",
+            )
+        raise RuntimeError(f"{ref}:{path}")
+
+    monkeypatch.setattr(
+        github_handlers_file, "fetch_directory", fake_dir_index1
+    )
     async with httpx.AsyncClient() as client:
         directory_result = (
             await github_handlers_file._resolve_ambiguous_ref_path(
@@ -1333,64 +1347,37 @@ async def test_github_ambiguous_ref_resolution_branches(
                 1.0,
             )
         )
-    assert directory_result.title == "feature:src/app.py"
+    assert directory_result.title == "feature/src:app.py"
 
-    async def always_fail_github_get(
-        client: httpx.AsyncClient,
-        token: str,
-        base_url: str,
-        endpoint: str,
-        timeout_s: float,
-    ) -> dict[str, object]:
-        raise RuntimeError(endpoint)
+    # All candidates fail -> first-segment fallback re-raises to the caller.
+    async def always_raise(*args: object) -> FetchResult:
+        raise RuntimeError("miss")
 
-    async def fake_directory(
-        client: httpx.AsyncClient,
-        token: str,
-        base_url: str,
-        owner: str,
-        repo: str,
-        ref: str | None,
-        path: str | None,
-        timeout_s: float,
-    ) -> FetchResult:
-        return FetchResult(
-            url=f"https://github.com/{owner}/{repo}/tree/{ref}/{path}",
-            title=f"{ref}:{path}",
-            content="# directory",
-            source_provider="github",
-        )
-
-    monkeypatch.setattr(
-        github_handlers_file, "github_get", always_fail_github_get
-    )
-    monkeypatch.setattr(github_handlers_file, "fetch_directory", fake_directory)
+    monkeypatch.setattr(github_handlers_file, "fetch_file", always_raise)
+    monkeypatch.setattr(github_handlers_file, "fetch_directory", always_raise)
     async with httpx.AsyncClient() as client:
-        fallback = await github_handlers_file._resolve_ambiguous_ref_path(
-            client,
-            _TOKEN,
-            API_BASE_URL,
-            _OWNER,
-            _REPO,
-            "feature/docs",
-            "directory",
-            1.0,
-        )
-    assert fallback.title == "feature:docs"
-
-    monkeypatch.setattr(github_handlers_file, "fetch_file", fake_file)
-    async with httpx.AsyncClient() as client:
-        file_fallback = await github_handlers_file._resolve_ambiguous_ref_path(
-            client,
-            _TOKEN,
-            API_BASE_URL,
-            _OWNER,
-            _REPO,
-            "feature/src/app.py",
-            "file",
-            1.0,
-        )
-    assert file_fallback.title == "feature:src/app.py"
+        with pytest.raises(RuntimeError, match="miss"):
+            await github_handlers_file._resolve_ambiguous_ref_path(
+                client,
+                _TOKEN,
+                API_BASE_URL,
+                _OWNER,
+                _REPO,
+                "feature/src/app.py",
+                "file",
+                1.0,
+            )
+        with pytest.raises(RuntimeError, match="miss"):
+            await github_handlers_file._resolve_ambiguous_ref_path(
+                client,
+                _TOKEN,
+                API_BASE_URL,
+                _OWNER,
+                _REPO,
+                "feature/docs",
+                "directory",
+                1.0,
+            )
 
 
 async def test_github_repo_overview_graphql_and_rest_fallback() -> None:
@@ -1798,6 +1785,49 @@ async def test_github_wiki_raw_swallows_non_404() -> None:
                 client, _TOKEN, _OWNER, _REPO, "Page", ".md", 1.0
             )
     assert result is None
+
+
+async def test_github_wiki_falls_back_to_alt_extension() -> None:
+    base = "https://raw.githubusercontent.com/wiki/octo/repo/Page"
+    with respx.mock(assert_all_called=True) as router:
+        router.get(f"{base}.md").respond(404, content="")
+        router.get(base).respond(404, content="")
+        router.get(f"{base}.mediawiki").respond(content="mediawiki body")
+        router.get(f"{base}.asciidoc").respond(404, content="")
+        router.get(f"{base}.rst").respond(404, content="")
+        async with httpx.AsyncClient() as client:
+            result = await fetch_wiki_page(
+                client, _TOKEN, API_BASE_URL, _OWNER, _REPO, "Page", 1.0
+            )
+    assert "mediawiki body" in result.content
+    assert result.metadata == {"resource_type": "wiki_page"}
+
+
+async def test_github_org_profile_uses_org_repos_endpoint() -> None:
+    with respx.mock(assert_all_called=True) as router:
+        router.get(f"{API_BASE_URL}/users/acme").respond(
+            json={
+                "login": "acme",
+                "type": "Organization",
+                "public_repos": 5,
+                "followers": 0,
+                "following": 0,
+                "created_at": "2026-01-01T00:00:00Z",
+            }
+        )
+        router.get(f"{API_BASE_URL}/orgs/acme/repos").respond(
+            json=[{"name": "r", "html_url": "https://u"}]
+        )
+        async with httpx.AsyncClient() as client:
+            result = await fetch_user_profile(
+                client, _TOKEN, API_BASE_URL, "acme", True, 1.0
+            )
+    assert result.metadata == {
+        "resource_type": "user_profile",
+        "public_repos": 5,
+        "followers": 0,
+    }
+    assert "Repositories" in result.content
 
 
 def _mock_rest_overview(router: respx.Router, tree: dict[str, object]) -> None:
