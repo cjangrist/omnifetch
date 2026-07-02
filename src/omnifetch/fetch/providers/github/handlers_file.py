@@ -5,7 +5,7 @@
 from __future__ import annotations
 
 import re
-from urllib.parse import quote
+from urllib.parse import quote, unquote
 
 import httpx
 
@@ -13,6 +13,11 @@ from omnifetch.fetch.providers.github.api import (
     api_headers,
     github_get,
     github_get_raw,
+)
+from omnifetch.fetch.providers.github.constants import (
+    RAW_FETCH_TIMEOUT_S,
+    WIKI_ALT_TIMEOUT_S,
+    WIKI_PRIMARY_TIMEOUT_S,
 )
 from omnifetch.fetch.providers.github.formatters import (
     escape_table_cell,
@@ -44,17 +49,20 @@ async def fetch_file(
     file_path = path or ""
     endpoint = _contents_endpoint(owner, repo, file_path, ref)
     if is_binary(file_path):
-        return await _fetch_binary_file(
-            client,
-            token,
-            base_url,
-            owner,
-            repo,
-            file_path,
-            ref,
-            endpoint,
-            timeout_s,
-        )
+        try:
+            return await _fetch_binary_file(
+                client,
+                token,
+                base_url,
+                owner,
+                repo,
+                file_path,
+                ref,
+                endpoint,
+                timeout_s,
+            )
+        except Exception:
+            pass
     try:
         raw_content = await github_get_raw(
             client, token, base_url, endpoint, timeout_s
@@ -103,11 +111,11 @@ async def fetch_directory(
     )
     dirs = sorted(
         [entry for entry in entries if entry.get("type") == "dir"],
-        key=lambda entry: str(entry.get("name", "")),
+        key=lambda entry: str(entry.get("name", "")).lower(),
     )
     files = sorted(
         [entry for entry in entries if entry.get("type") != "dir"],
-        key=lambda entry: str(entry.get("name", "")),
+        key=lambda entry: str(entry.get("name", "")).lower(),
     )
     rows = [
         f"| dir | {escape_table_cell(str(entry.get('name', '')))}/ | - |"
@@ -168,7 +176,7 @@ async def fetch_raw_file(
         "github",
         raw_url,
         headers=api_headers(token),
-        timeout_s=timeout_s,
+        timeout_s=RAW_FETCH_TIMEOUT_S,
         expected_statuses=(404,),
     )
     if status == 404:
@@ -188,11 +196,20 @@ async def fetch_wiki_page(
     timeout_s: float,
 ) -> FetchResult:
     """Fetch a GitHub wiki page from raw wiki storage."""
-    title = page_slug.replace("-", " ")
+    title = unquote(page_slug).replace("-", " ")
     encoded_slug = "/".join(quote(part) for part in page_slug.split("/"))
     for extension in (".md", "", ".mediawiki", ".asciidoc", ".rst"):
+        attempt_timeout_s = (
+            WIKI_PRIMARY_TIMEOUT_S if extension == ".md" else WIKI_ALT_TIMEOUT_S
+        )
         raw = await _fetch_wiki_raw(
-            client, token, owner, repo, encoded_slug, extension, timeout_s
+            client,
+            token,
+            owner,
+            repo,
+            encoded_slug,
+            extension,
+            attempt_timeout_s,
         )
         if raw:
             return FetchResult(
@@ -340,14 +357,17 @@ async def _fetch_wiki_raw(
     timeout_s: float,
 ) -> str | None:
     raw_url = f"https://raw.githubusercontent.com/wiki/{owner}/{repo}/{encoded_slug}{extension}"
-    raw, status = await http_raw(
-        client,
-        "github",
-        raw_url,
-        headers=api_headers(token),
-        timeout_s=timeout_s,
-        expected_statuses=(404,),
-    )
+    try:
+        raw, status = await http_raw(
+            client,
+            "github",
+            raw_url,
+            headers=api_headers(token),
+            timeout_s=timeout_s,
+            expected_statuses=(404,),
+        )
+    except Exception:
+        return None
     return raw if status != 404 and raw else None
 
 
@@ -369,7 +389,7 @@ def _file_result(
     ref: str | None,
     raw_content: str,
 ) -> FetchResult:
-    file_ext = file_path.rsplit(".", maxsplit=1)[-1] if "." in file_path else ""
+    file_ext = file_path.rsplit(".", maxsplit=1)[-1] if file_path else ""
     content = (
         f"# {file_path or 'File'}\n\n"
         f"**Repository:** {owner}/{repo}\n**Branch:** `{ref or 'default'}`\n"
@@ -394,7 +414,7 @@ def _raw_file_result(
     raw: str,
 ) -> FetchResult:
     file_name = path.rsplit("/", maxsplit=1)[-1] if path else ref
-    file_ext = path.rsplit(".", maxsplit=1)[-1] if path and "." in path else ""
+    file_ext = path.rsplit(".", maxsplit=1)[-1] if path else ""
     content = (
         raw
         if path and "/" in path and _is_readme_file_name(file_name)

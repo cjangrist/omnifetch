@@ -35,6 +35,15 @@ class TextFile:
 
 
 @dataclass(frozen=True, slots=True)
+class AiRuleInline:
+    """Single inlined AI-rules file with its name, content, and byte size."""
+
+    name: str
+    text: str
+    size: int
+
+
+@dataclass(frozen=True, slots=True)
 class TreeEntry:
     """Repository tree entry."""
 
@@ -143,7 +152,7 @@ class RepoOverviewData:
     docs_dir_name: str | None
     docs_files: list[str]
     ai_rules_listing: dict[str, list[TextFile]]
-    ai_rules_inline: dict[str, TextFile]
+    ai_rules_inline: dict[str, AiRuleInline]
     dep_configs: list[tuple[str, str]]
     readme: TextFile | None
     context_files: dict[str, TextFile] = field(default_factory=dict)

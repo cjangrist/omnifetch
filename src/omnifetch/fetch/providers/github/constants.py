@@ -141,8 +141,15 @@ OVERVIEW_ISSUES_PER_PAGE = 5
 OVERVIEW_PRS_PER_PAGE = 5
 OVERVIEW_RELEASES_PER_PAGE = 3
 COMMENTS_PER_PAGE = 50
+COMMIT_FILES_API_LIMIT = 300
 STARGAZER_MAX_PAGE = 400
 MAX_TREE_CHILDREN_DIRS = 25
+
+# Fixed timeouts (seconds) for the non-API raw hosts, matching the TS
+# reference: raw file fetch 15s, wiki primary attempt 10s, wiki fallbacks 5s.
+RAW_FETCH_TIMEOUT_S = 15.0
+WIKI_PRIMARY_TIMEOUT_S = 10.0
+WIKI_ALT_TIMEOUT_S = 5.0
 
 DEP_CONFIG_ALLOWLIST = {
     "package.json": ("dep_package_json", 10_000),

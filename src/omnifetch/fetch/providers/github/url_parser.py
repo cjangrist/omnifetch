@@ -163,10 +163,14 @@ def _parse_commits(owner: str, repo: str, rest: list[str]) -> ParsedGitHubUrl:
         return ParsedGitHubUrl(
             "commit_list", owner=owner, repo=repo, ref="/".join(rest[1:])
         )
-    resource_id = _PATCH_SUFFIX.sub("", rest[1]) if len(rest) > 1 else None
-    return ParsedGitHubUrl(
-        "commit", owner=owner, repo=repo, resource_id=resource_id
-    )
+    if rest[0] == "commit" and len(rest) > 1:
+        return ParsedGitHubUrl(
+            "commit",
+            owner=owner,
+            repo=repo,
+            resource_id=_PATCH_SUFFIX.sub("", rest[1]),
+        )
+    return ParsedGitHubUrl("repo_overview", owner=owner, repo=repo)
 
 
 def _parse_actions(owner: str, repo: str, rest: list[str]) -> ParsedGitHubUrl:
@@ -174,7 +178,9 @@ def _parse_actions(owner: str, repo: str, rest: list[str]) -> ParsedGitHubUrl:
         return ParsedGitHubUrl(
             "action_run", owner=owner, repo=repo, resource_id=rest[2]
         )
-    return ParsedGitHubUrl("actions", owner=owner, repo=repo)
+    if len(rest) == 1:
+        return ParsedGitHubUrl("actions", owner=owner, repo=repo)
+    return ParsedGitHubUrl("repo_overview", owner=owner, repo=repo)
 
 
 def _parse_discussions(

@@ -31,7 +31,12 @@ from omnifetch.fetch.providers.github.api import (
     github_get_starred,
     raw_headers,
 )
-from omnifetch.fetch.providers.github.constants import API_BASE_URL
+from omnifetch.fetch.providers.github.constants import (
+    API_BASE_URL,
+    COMMENTS_PER_PAGE,
+    COMMIT_FILES_API_LIMIT,
+    LIST_PER_PAGE,
+)
 from omnifetch.fetch.providers.github.formatters import (
     escape_table_cell,
     format_ai_rules_listing,
@@ -78,6 +83,7 @@ from omnifetch.fetch.providers.github.repo_overview import (
     fetch_repo_overview_rest,
 )
 from omnifetch.fetch.providers.github.types import (
+    AiRuleInline,
     ForkParent,
     ParsedGitHubUrl,
     RepoCommit,
@@ -439,6 +445,16 @@ def test_github_url_parser_edge_branches(
     )
     assert (
         _parsed_github_url("https://github.com/octo/repo/pulse").resource_type
+        == "repo_overview"
+    )
+    assert (
+        _parsed_github_url("https://github.com/octo/repo/commit").resource_type
+        == "repo_overview"
+    )
+    assert (
+        _parsed_github_url(
+            "https://github.com/octo/repo/actions/workflows/ci.yml"
+        ).resource_type
         == "repo_overview"
     )
 
@@ -1473,7 +1489,9 @@ def test_github_markdown_builder_full_and_minimal_data() -> None:
         docs_dir_name="docs",
         docs_files=["index.md"],
         ai_rules_listing={".cursor/rules": [TextFile("rule.md", 4)]},
-        ai_rules_inline={".windsurf/rules": TextFile("inline rule", 11)},
+        ai_rules_inline={
+            ".windsurf/rules": AiRuleInline("guide.md", "inline rule", 11)
+        },
         dep_configs=[("Gemfile", "source")],
         readme=TextFile("# Readme", 8),
         context_files={
@@ -1516,7 +1534,8 @@ def test_github_markdown_builder_full_and_minimal_data() -> None:
     rich_result = build_repo_overview_result(rich)
     assert "Forked From" in rich_result.content
     assert "llms-full.txt" in rich_result.content
-    assert ".windsurf/rules" in rich_result.content
+    assert "## .windsurf/rules/guide.md" in rich_result.content
+    assert "inline rule" in rich_result.content
     assert (
         github_markdown_builder._metadata(rich, True, 123)[
             "readme_original_tokens"
@@ -1608,7 +1627,7 @@ async def test_github_repo_overview_helper_edges(
         {"agents_md": {"byteSize": 200_000}}
     )
     assert context == {}
-    assert too_large == ["AGENTS.md (195.3 KB - too large to inline)"]
+    assert too_large == ["AGENTS.md (195.3 KB — too large to inline)"]
 
     listing, inline = github_repo_overview._extract_gql_ai_rules(
         {
@@ -1659,6 +1678,126 @@ async def test_github_repo_overview_helper_edges(
             1.0,
         )
     assert skipped_inline == {}
+
+
+def test_github_profile_optional_rows_and_repo_truncation() -> None:
+    user = {
+        "login": "octo",
+        "type": "User",
+        "company": "Acme",
+        "location": "Earth",
+        "blog": "https://blog.example",
+        "public_repos": 150,
+        "followers": 1,
+        "following": 1,
+        "created_at": "2026-01-01T00:00:00Z",
+    }
+    repos: list[dict[str, object]] = [
+        {"name": f"repo{index}", "html_url": "https://u"}
+        for index in range(LIST_PER_PAGE)
+    ]
+    content = github_handlers._user_profile_content(user, repos)
+    assert "| Company | Acme |" in content
+    assert "| Location | Earth |" in content
+    assert "| Blog | https://blog.example |" in content
+    assert "(showing first 100 — more may exist)" in content
+
+
+def test_github_truncation_notes() -> None:
+    commit_files: list[dict[str, object]] = [
+        {"filename": f"f{index}.py", "status": "modified"}
+        for index in range(COMMIT_FILES_API_LIMIT)
+    ]
+    commit_content = github_handlers._commit_content(
+        {"sha": "abc"}, {"message": "m", "author": {}}, {}, commit_files
+    )
+    assert "(API limit — more files may exist)" in commit_content
+
+    pr = {
+        "number": 1,
+        "title": "t",
+        "draft": False,
+        "user": {},
+        "base": {},
+        "head": {},
+        "changed_files": 50,
+        "additions": 1,
+        "deletions": 1,
+    }
+    pr_content = github_handlers._pull_request_content(
+        pr,
+        "open",
+        [{"filename": "a.py", "status": "modified", "patch": "x"}],
+        True,
+    )
+    assert "(showing 1 of 50)" in pr_content
+
+    comments: list[dict[str, object]] = [
+        {"user": {}, "created_at": "", "body": "x"}
+        for _ in range(COMMENTS_PER_PAGE)
+    ]
+    issue_content = github_handlers._issue_content(
+        {
+            "number": 1,
+            "title": "t",
+            "state": "open",
+            "user": {},
+            "comments": 123,
+        },
+        "",
+        "",
+        comments,
+    )
+    assert "(showing first 50 of 123)" in issue_content
+
+
+def test_github_nullish_watchers() -> None:
+    assert (
+        github_repo_overview._nullish_watchers(
+            {"subscribers_count": 0, "watchers_count": 99}
+        )
+        == 0
+    )
+    assert github_repo_overview._nullish_watchers({"watchers_count": 42}) == 42
+
+
+async def test_github_binary_fallback_to_raw(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def raising_binary(*args: object) -> FetchResult:
+        raise RuntimeError("binary meta failed")
+
+    monkeypatch.setattr(
+        github_handlers_file, "_fetch_binary_file", raising_binary
+    )
+    with respx.mock(assert_all_called=True) as router:
+        router.get(f"{API_BASE_URL}/repos/octo/repo/contents/logo.png").respond(
+            content="rawbytes"
+        )
+        async with httpx.AsyncClient() as client:
+            result = await fetch_file(
+                client,
+                _TOKEN,
+                API_BASE_URL,
+                _OWNER,
+                _REPO,
+                "main",
+                "logo.png",
+                1.0,
+            )
+    assert "rawbytes" in result.content
+
+
+async def test_github_wiki_raw_swallows_non_404() -> None:
+    with respx.mock(assert_all_called=True) as router:
+        router.get(
+            "https://raw.githubusercontent.com/wiki/octo/repo/Page.md"
+        ).respond(500, content="err")
+        async with httpx.AsyncClient() as client:
+            result = await github_handlers_file._fetch_wiki_raw(
+                client, _TOKEN, _OWNER, _REPO, "Page", ".md", 1.0
+            )
+    assert result is None
 
 
 def _mock_rest_overview(router: respx.Router, tree: dict[str, object]) -> None:

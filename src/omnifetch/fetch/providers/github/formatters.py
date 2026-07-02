@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+import math
 import re
 from datetime import datetime, UTC
 
@@ -28,12 +29,16 @@ _COMMENT = re.compile(r"<!--[\s\S]*?-->")
 _SENTENCE = re.compile(r"(?<=[.!?])\s+|\n\n")
 _FENCE = re.compile(r"^(`{3,}|~{3,})")
 _PROVIDER_SECTION = re.compile(
-    r"^## ((CLAUDE|AGENTS|GEMINI|AGENT|ARCHITECTURE|DEVELOPMENT|"
-    r"CONVENTIONS|REVIEW)\.md|\.(cursorrules|windsurfrules|clinerules|"
-    r"goosehints|roorules|continuerules)|\.(github|cursor|windsurf|roo|"
-    r"amazonq|augment|continue|trae|agents|junie)/|(Recent Commits|Commit "
-    r"Activity|Open Issues|Open Pull Requests|Recent Releases|AI Rules Files|"
-    r"AI Context Files|Package Manifests|llms))"
+    r"^## (?:"
+    r"(?:CLAUDE|AGENTS|GEMINI|AGENT|ARCHITECTURE|DEVELOPMENT|CONVENTIONS|"
+    r"REVIEW)\.md$"
+    r"|\.(?:cursorrules|windsurfrules|clinerules|goosehints|roorules|"
+    r"continuerules)$"
+    r"|\.(?:github|cursor|windsurf|roo|amazonq|augment|continue|trae|agents|"
+    r"junie)/"
+    r"|(?:Recent Commits|Commit Activity|Open Issues|Open Pull Requests|"
+    r"Recent Releases|AI Rules Files|AI Context Files|Package Manifests|llms)"
+    r")"
 )
 
 
@@ -136,7 +141,7 @@ def truncate_readme(content: str) -> ReadmeTruncation:
     cut = readme_text.rfind("\n", 0, README_CHAR_CAP)
     cut = README_CHAR_CAP if cut == -1 else cut
     note = (
-        f"\n\n*[README truncated - showing ~{README_TOKEN_CAP:,} of "
+        f"\n\n*[README truncated — showing ~{README_TOKEN_CAP:,} of "
         f"{original_tokens:,} tokens]*\n"
     )
     truncated = content[:body_start] + readme_text[:cut] + note
@@ -207,7 +212,7 @@ def format_depth2_tree(entries: list[TreeEntry]) -> str:
             for entry in entries
             if "/" not in entry.path and entry.type == "tree"
         ],
-        key=lambda entry: entry.path,
+        key=lambda entry: entry.path.lower(),
     )
     top_files = sorted(
         [
@@ -215,7 +220,7 @@ def format_depth2_tree(entries: list[TreeEntry]) -> str:
             for entry in entries
             if "/" not in entry.path and entry.type != "tree"
         ],
-        key=lambda entry: entry.path,
+        key=lambda entry: entry.path.lower(),
     )
     lines = [_format_dir_tree(entry, entries) for entry in top_dirs]
     lines.extend(_format_tree_file(entry) for entry in top_files)
@@ -224,16 +229,29 @@ def format_depth2_tree(entries: list[TreeEntry]) -> str:
     )
 
 
+def _round_half_up(value: float) -> int:
+    """Round half away from zero, matching JavaScript ``Math.round``."""
+    return math.floor(value + 0.5)
+
+
 def _format_rate_per_day(rate_per_day: float) -> str:
     if rate_per_day >= 100:
-        return f"~{round(rate_per_day)}/day (~{round(rate_per_day * 30)}/month)"
+        return (
+            f"~{_round_half_up(rate_per_day)}/day "
+            f"(~{_round_half_up(rate_per_day * 30)}/month)"
+        )
     if rate_per_day >= 10:
-        return f"~{round(rate_per_day)}/day (~{round(rate_per_day * 7)}/week)"
+        return (
+            f"~{_round_half_up(rate_per_day)}/day "
+            f"(~{_round_half_up(rate_per_day * 7)}/week)"
+        )
     if rate_per_day >= 1:
-        return f"~{rate_per_day:.1f}/day (~{round(rate_per_day * 7)}/week)"
+        weekly = _round_half_up(rate_per_day * 7)
+        return f"~{rate_per_day:.1f}/day (~{weekly}/week)"
     if rate_per_day >= 0.14:
         return (
-            f"~{rate_per_day * 7:.1f}/week (~{round(rate_per_day * 30)}/month)"
+            f"~{rate_per_day * 7:.1f}/week "
+            f"(~{_round_half_up(rate_per_day * 30)}/month)"
         )
     return f"~{rate_per_day * 30:.1f}/month"
 
@@ -307,11 +325,11 @@ def _format_dir_tree(entry: TreeEntry, entries: list[TreeEntry]) -> str:
     ]
     child_dirs = sorted(
         [child for child in children if child.type == "tree"],
-        key=lambda child: child.path,
+        key=lambda child: child.path.lower(),
     )
     child_files = sorted(
         [child for child in children if child.type != "tree"],
-        key=lambda child: child.path,
+        key=lambda child: child.path.lower(),
     )
     rows = [f"{entry.path}/"]
     rows.extend(

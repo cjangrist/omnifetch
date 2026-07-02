@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from urllib.parse import quote
 
 import httpx
@@ -11,6 +12,7 @@ import httpx
 from omnifetch.fetch.providers.github.api import github_get, github_get_safe
 from omnifetch.fetch.providers.github.constants import (
     COMMENTS_PER_PAGE,
+    COMMIT_FILES_API_LIMIT,
     LIST_PER_PAGE,
     PATCH_MAX_CHARS,
     RELEASE_BODY_MAX_CHARS,
@@ -60,19 +62,21 @@ async def fetch_issue(
     timeout_s: float,
 ) -> FetchResult:
     """Fetch a GitHub issue."""
-    issue = await github_get(
-        client,
-        token,
-        base_url,
-        f"/repos/{owner}/{repo}/issues/{issue_number}",
-        timeout_s,
-    )
-    comments = await github_get_safe(
-        client,
-        token,
-        base_url,
-        f"/repos/{owner}/{repo}/issues/{issue_number}/comments?per_page={COMMENTS_PER_PAGE}",
-        timeout_s,
+    issue, comments = await asyncio.gather(
+        github_get(
+            client,
+            token,
+            base_url,
+            f"/repos/{owner}/{repo}/issues/{issue_number}",
+            timeout_s,
+        ),
+        github_get_safe(
+            client,
+            token,
+            base_url,
+            f"/repos/{owner}/{repo}/issues/{issue_number}/comments?per_page={COMMENTS_PER_PAGE}",
+            timeout_s,
+        ),
     )
     labels = " ".join(
         f"`{label.get('name')}`" for label in _list(issue.get("labels"))
@@ -115,7 +119,7 @@ async def fetch_issue_list(
         issue for issue in _list(issues) if "pull_request" not in issue
     ]
     note = (
-        " (API returned 100 results - more may exist)"
+        " (API returned 100 results — more may exist)"
         if len(_list(issues)) >= LIST_PER_PAGE
         else ""
     )
@@ -151,7 +155,7 @@ async def fetch_pr_list(
         timeout_s,
     )
     note = (
-        " (showing first 100 - more may exist)"
+        " (showing first 100 — more may exist)"
         if len(_list(pulls)) >= LIST_PER_PAGE
         else ""
     )
@@ -181,15 +185,15 @@ async def fetch_pull_request(
     timeout_s: float,
 ) -> FetchResult:
     """Fetch a GitHub pull request."""
-    pr = await github_get(
-        client,
-        token,
-        base_url,
-        f"/repos/{owner}/{repo}/pulls/{pr_number}",
-        timeout_s,
-    )
-    files = (
-        await github_get_safe(
+    pr, files = await asyncio.gather(
+        github_get(
+            client,
+            token,
+            base_url,
+            f"/repos/{owner}/{repo}/pulls/{pr_number}",
+            timeout_s,
+        ),
+        github_get_safe(
             client,
             token,
             base_url,
@@ -197,7 +201,7 @@ async def fetch_pull_request(
             timeout_s,
         )
         if include_files
-        else None
+        else asyncio.sleep(0, result=None),
     )
     state = "merged" if pr.get("merged_at") else str(pr.get("state", ""))
     content = _pull_request_content(pr, state, _list(files), include_files)
@@ -263,7 +267,7 @@ async def fetch_release(
         client,
         token,
         base_url,
-        f"/repos/{owner}/{repo}/releases/tags/{quote(tag)}",
+        f"/repos/{owner}/{repo}/releases/tags/{quote(tag, safe='')}",
         timeout_s,
     )
     return _release_detail(release, owner, repo)
@@ -461,7 +465,12 @@ def _issue_content(
     if issue.get("body"):
         content += f"{issue.get('body')}\n\n"
     if comments:
-        content += f"---\n\n## Comments ({len(comments)})\n\n" + "".join(
+        note = (
+            f" (showing first {COMMENTS_PER_PAGE} of {issue.get('comments')})"
+            if len(comments) >= COMMENTS_PER_PAGE
+            else ""
+        )
+        content += f"---\n\n## Comments ({len(comments)}{note})\n\n" + "".join(
             _comment_block(comment) for comment in comments
         )
     return content
@@ -480,8 +489,15 @@ def _pull_request_content(
     if pr.get("body"):
         content += f"---\n\n{pr.get('body')}\n\n"
     if include_files and files:
-        content += f"---\n\n## Changed Files ({len(files)})\n\n" + "".join(
-            _file_patch(file) for file in files
+        changed_files = _int(pr.get("changed_files"))
+        note = (
+            f" (showing {len(files)} of {changed_files})"
+            if changed_files > len(files)
+            else ""
+        )
+        content += (
+            f"---\n\n## Changed Files ({len(files)}{note})\n\n"
+            + "".join(_file_patch(file) for file in files)
         )
     return content
 
@@ -520,7 +536,12 @@ def _commit_content(
         content += f"**Stats:** +{stats.get('additions')} -{stats.get('deletions')} ({stats.get('total')} total)\n"
     content += "\n"
     if files:
-        content += f"## Changed Files ({len(files)})\n\n" + "".join(
+        note = (
+            " (API limit — more files may exist)"
+            if len(files) >= COMMIT_FILES_API_LIMIT
+            else ""
+        )
+        content += f"## Changed Files ({len(files)}{note})\n\n" + "".join(
             _file_patch(file) for file in files
         )
     return content
@@ -533,14 +554,47 @@ def _user_profile_content(
     content = f"# {user.get('name') or user.get('login')}\n\n"
     if user.get("bio"):
         content += f"> {user.get('bio')}\n\n"
-    content += f"| Field | Value |\n|-------|-------|\n| Username | @{user.get('login')} |\n| Type | {user.get('type')} |\n| Public Repos | {user.get('public_repos')} |\n| Followers | {user.get('followers')} |\n| Following | {user.get('following')} |\n| Member Since | {format_date(_str(user.get('created_at')))} |\n\n"
+    content += (
+        "| Field | Value |\n|-------|-------|\n"
+        f"| Username | @{user.get('login')} |\n| Type | {user.get('type')} |\n"
+    )
+    content += _profile_optional_rows(user)
+    content += (
+        f"| Public Repos | {user.get('public_repos')} |\n"
+        f"| Followers | {user.get('followers')} |\n"
+        f"| Following | {user.get('following')} |\n"
+        f"| Member Since | {format_date(_str(user.get('created_at')))} |\n\n"
+    )
     if repos:
+        note = (
+            " (showing first 100 — more may exist)"
+            if len(repos) >= LIST_PER_PAGE
+            else ""
+        )
         content += (
-            "## Repositories\n\n| Repo | Stars | Language | Description |\n|------|-------|----------|-------------|\n"
+            "## Repositories\n\n| Repo | Stars | Language | Description |\n"
+            "|------|-------|----------|-------------|\n"
             + "\n".join(_repo_row(repo) for repo in repos)
             + "\n"
         )
+        if note:
+            content += f"\n_{note}_\n"
     return content + "\n---\n*Fetched via GitHub API*\n"
+
+
+def _profile_optional_rows(user: dict[str, object]) -> str:
+    rows = ""
+    if user.get("company"):
+        rows += (
+            f"| Company | {escape_table_cell(_str(user.get('company')))} |\n"
+        )
+    if user.get("location"):
+        rows += (
+            f"| Location | {escape_table_cell(_str(user.get('location')))} |\n"
+        )
+    if user.get("blog"):
+        rows += f"| Blog | {escape_table_cell(_str(user.get('blog')))} |\n"
+    return rows
 
 
 def _gist_content(

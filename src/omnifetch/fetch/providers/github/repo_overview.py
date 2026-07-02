@@ -23,6 +23,7 @@ from omnifetch.fetch.providers.github.constants import (
     CONTEXT_FILE_NAMES,
     DEP_CONFIG_ALLOWLIST,
     DOCS_DIR_NAMES,
+    NOISY_DIR_NAMES,
     OVERVIEW_COMMITS_PER_PAGE,
     OVERVIEW_ISSUES_PER_PAGE,
     OVERVIEW_PRS_PER_PAGE,
@@ -46,6 +47,7 @@ from omnifetch.fetch.providers.github.markdown_builder import (
     build_repo_overview_result,
 )
 from omnifetch.fetch.providers.github.types import (
+    AiRuleInline,
     ForkParent,
     RepoCommit,
     RepoIssue,
@@ -160,22 +162,24 @@ async def fetch_repo_overview_rest(
     timeout_s: float,
 ) -> FetchResult:
     """Fetch a repository overview using GitHub REST endpoints."""
-    repo_data = await github_get(
-        client, token, base_url, f"/repos/{owner}/{repo}", timeout_s
-    )
-    readme_raw = await github_get_raw_safe(
-        client,
-        token,
-        base_url,
-        f"/repos/{owner}/{repo}/readme",
-        timeout_s,
-    )
-    languages = await github_get_safe(
-        client,
-        token,
-        base_url,
-        f"/repos/{owner}/{repo}/languages",
-        timeout_s,
+    repo_data, readme_raw, languages = await asyncio.gather(
+        github_get(
+            client, token, base_url, f"/repos/{owner}/{repo}", timeout_s
+        ),
+        github_get_raw_safe(
+            client,
+            token,
+            base_url,
+            f"/repos/{owner}/{repo}/readme",
+            timeout_s,
+        ),
+        github_get_safe(
+            client,
+            token,
+            base_url,
+            f"/repos/{owner}/{repo}/languages",
+            timeout_s,
+        ),
     )
     data = await _rest_overview_enrichment(
         client,
@@ -206,16 +210,8 @@ async def _fetch_gql_tree_and_docs(
         str(entry.get("name"))
         for entry in root_entries
         if entry.get("type") == "tree"
+        and str(entry.get("name", "")).lower() not in NOISY_DIR_NAMES
     ]
-    children = await _fetch_tree_children(
-        client,
-        token,
-        base_url,
-        owner,
-        repo,
-        queryable_dirs,
-        timeout_s,
-    )
     docs_dir = next(
         (
             str(entry.get("name"))
@@ -225,8 +221,11 @@ async def _fetch_gql_tree_and_docs(
         ),
         None,
     )
-    docs_files = (
-        await fetch_docs_tree(
+    children, docs_files = await asyncio.gather(
+        _fetch_tree_children(
+            client, token, base_url, owner, repo, queryable_dirs, timeout_s
+        ),
+        fetch_docs_tree(
             client,
             token,
             base_url,
@@ -237,7 +236,7 @@ async def _fetch_gql_tree_and_docs(
             timeout_s,
         )
         if docs_dir
-        else []
+        else asyncio.sleep(0, result=[]),
     )
     return (
         merge_tree_children(root_entries, children, queryable_dirs),
@@ -364,7 +363,9 @@ async def _repo_data_from_rest(
     stars: Any,
     timeout_s: float,
 ) -> RepoOverviewData:
-    full_tree, tree_paths, docs_dir, docs_files = _process_rest_tree(tree_data)
+    full_tree, tree_paths, docs_dir, docs_files, tree_truncated = (
+        _process_rest_tree(tree_data)
+    )
     repo_mapping = _dict_value(repo_data)
     owner_login = str(_dict_value(repo_data, "owner").get("login", ""))
     repo_name = str(repo_mapping.get("name", ""))
@@ -375,6 +376,7 @@ async def _repo_data_from_rest(
         owner_login,
         repo_name,
         tree_paths,
+        tree_truncated,
         timeout_s,
     )
     ai_listing, ai_inline = await _fetch_rest_ai_rules(
@@ -484,7 +486,7 @@ def _repo_data_from_gql(
             )
         ],
         api_source="graphql",
-        rate_limit_remaining=_int_value(rate, "remaining"),
+        rate_limit_remaining=_optional_int(rate.get("remaining")),
     )
 
 
@@ -503,7 +505,7 @@ def _rest_data(
     docs_files: list[str],
     context_files: dict[str, TextFile],
     ai_listing: dict[str, list[TextFile]],
-    ai_inline: dict[str, TextFile],
+    ai_inline: dict[str, AiRuleInline],
     dep_configs: list[tuple[str, str]],
 ) -> RepoOverviewData:
     repo_mapping = _dict_value(repo_data)
@@ -538,8 +540,7 @@ def _rest_data(
         forks=_int_value(repo_data, "forks_count"),
         open_issues_count=_int_value(repo_data, "open_issues_count"),
         open_prs_count=len(_coerce_list(pulls)),
-        watchers=_int_value(repo_data, "subscribers_count")
-        or _int_value(repo_data, "watchers_count"),
+        watchers=_nullish_watchers(repo_data),
         star_velocity=format_star_velocity(
             _int_value(repo_data, "stargazers_count"),
             [str(star.get("starred_at")) for star in _coerce_list(stars)],
@@ -592,10 +593,19 @@ async def _fetch_rest_context_and_deps(
     owner: str,
     repo: str,
     tree_paths: set[str],
+    tree_truncated: bool,
     timeout_s: float,
 ) -> tuple[dict[str, TextFile], list[tuple[str, str]]]:
-    context_names = [name for name in CONTEXT_FILE_NAMES if name in tree_paths]
-    dep_names = [name for name in DEP_CONFIG_ALLOWLIST if name in tree_paths]
+    context_names = [
+        name
+        for name in CONTEXT_FILE_NAMES
+        if tree_truncated or name in tree_paths
+    ]
+    dep_names = [
+        name
+        for name in DEP_CONFIG_ALLOWLIST
+        if tree_truncated or name in tree_paths
+    ]
     context_raws, dep_raws = await asyncio.gather(
         _fetch_rest_raw_files(
             client, token, base_url, owner, repo, context_names, timeout_s
@@ -650,7 +660,7 @@ async def _fetch_rest_ai_rules(
     repo: str,
     full_tree: list[TreeEntry],
     timeout_s: float,
-) -> tuple[dict[str, list[TextFile]], dict[str, TextFile]]:
+) -> tuple[dict[str, list[TextFile]], dict[str, AiRuleInline]]:
     listing = {
         directory_path: [
             TextFile(entry.path.rsplit("/", maxsplit=1)[-1], entry.size or 0)
@@ -682,9 +692,9 @@ async def _fetch_inline_ai_rules(
     repo: str,
     listing: dict[str, list[TextFile]],
     timeout_s: float,
-) -> dict[str, TextFile]:
+) -> dict[str, AiRuleInline]:
     inline_targets = [
-        (directory_path, f"{directory_path}/{files[0].text}")
+        (directory_path, files[0].text, f"{directory_path}/{files[0].text}")
         for directory_path, files in listing.items()
         if len(files) == 1 and files[0].size <= AI_RULES_INLINE_MAX_BYTES
     ]
@@ -697,19 +707,22 @@ async def _fetch_inline_ai_rules(
                 f"/repos/{owner}/{repo}/contents/{path}",
                 timeout_s,
             )
-            for _, path in inline_targets
+            for _, _, path in inline_targets
         )
     )
     return {
-        directory_path: TextFile(raw, len(raw))
-        for (directory_path, _), raw in zip(inline_targets, raws, strict=True)
+        directory_path: AiRuleInline(name, raw, len(raw))
+        for (directory_path, name, _), raw in zip(
+            inline_targets, raws, strict=True
+        )
         if raw
     }
 
 
 def _process_rest_tree(
     tree_data: Any,
-) -> tuple[list[TreeEntry], set[str], str | None, list[str]]:
+) -> tuple[list[TreeEntry], set[str], str | None, list[str], bool]:
+    tree_truncated = _dict_value(tree_data).get("truncated") is True
     full_tree = [
         TreeEntry(
             str(entry.get("path")),
@@ -736,7 +749,7 @@ def _process_rest_tree(
         and entry.path.startswith(f"{docs_dir}/")
         and is_docs_md_file(entry.path)
     ]
-    return full_tree, tree_paths, docs_dir, docs_files
+    return full_tree, tree_paths, docs_dir, docs_files, tree_truncated
 
 
 def _extract_gql_context_files(
@@ -752,37 +765,38 @@ def _extract_gql_context_files(
             context[name] = blob
         elif _int_value(_dict_value(repository, alias), "byteSize"):
             too_large.append(
-                f"{name} ({format_size(_int_value(_dict_value(repository, alias), 'byteSize'))} - too large to inline)"
+                f"{name} ({format_size(_int_value(_dict_value(repository, alias), 'byteSize'))} — too large to inline)"
             )
     return context, too_large
 
 
 def _extract_gql_ai_rules(
     repository: dict[str, Any],
-) -> tuple[dict[str, list[TextFile]], dict[str, TextFile]]:
+) -> tuple[dict[str, list[TextFile]], dict[str, AiRuleInline]]:
     listing: dict[str, list[TextFile]] = {}
-    inline: dict[str, TextFile] = {}
+    inline: dict[str, AiRuleInline] = {}
     for directory_path, (alias, _) in AI_RULES_DIRS.items():
+        blob_entries = [
+            entry
+            for entry in _list_value(_dict_value(repository, alias), "entries")
+            if entry.get("type") == "blob"
+            and _int_value(_dict_value(entry, "object"), "byteSize")
+        ]
         files = [
             TextFile(
                 str(entry.get("name")),
                 _int_value(_dict_value(entry, "object"), "byteSize"),
             )
-            for entry in _list_value(_dict_value(repository, alias), "entries")
-            if entry.get("type") == "blob"
+            for entry in blob_entries
         ]
         if files:
             listing[directory_path] = files
         if len(files) == 1 and files[0].size <= AI_RULES_INLINE_MAX_BYTES:
-            text = str(
-                _dict_value(
-                    _list_value(_dict_value(repository, alias), "entries")[0],
-                    "object",
-                ).get("text")
-                or ""
-            )
+            text = str(_dict_value(blob_entries[0], "object").get("text") or "")
             if text:
-                inline[directory_path] = TextFile(files[0].text, len(text))
+                inline[directory_path] = AiRuleInline(
+                    files[0].text, text, files[0].size
+                )
     return listing, inline
 
 
@@ -924,6 +938,13 @@ def _gql_release(release: dict[str, Any]) -> RepoRelease:
         bool(release.get("isPrerelease")),
         str(release.get("description", "") or ""),
     )
+
+
+def _nullish_watchers(repo_data: Any) -> int:
+    subscribers = _dict_value(repo_data).get("subscribers_count")
+    if isinstance(subscribers, int):
+        return subscribers
+    return _int_value(repo_data, "watchers_count")
 
 
 def _rest_parent(repo_data: Any) -> ForkParent | None:

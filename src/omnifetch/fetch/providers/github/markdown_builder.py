@@ -19,7 +19,10 @@ from omnifetch.fetch.providers.github.formatters import (
     snippet_two_sentences,
     truncate_readme,
 )
-from omnifetch.fetch.providers.github.types import RepoOverviewData
+from omnifetch.fetch.providers.github.types import (
+    RepoOverviewData,
+    RepoPullRequest,
+)
 from omnifetch.fetch.shared.types import FetchResult
 
 _CONTEXT_RENDER_ORDER = (
@@ -137,7 +140,8 @@ def _render_context_files(data: RepoOverviewData) -> str:
             result += f"## {name}\n\n`````markdown\n{context_file.text.rstrip()}\n`````\n\n"
     for directory_path, file in data.ai_rules_inline.items():
         result += (
-            f"## {directory_path}\n\n`````\n{file.text.rstrip()}\n`````\n\n"
+            f"## {directory_path}/{file.name}\n\n"
+            f"`````\n{file.text.rstrip()}\n`````\n\n"
         )
     return result
 
@@ -158,42 +162,46 @@ def _render_activity(data: RepoOverviewData) -> str:
 def _render_issues(data: RepoOverviewData) -> str:
     if not data.issues:
         return ""
-    rows = [
+    return "## Open Issues\n\n" + "".join(
         f"### #{issue.number}: {issue.title}\n"
         f"**State:** {issue.state} | **Labels:** {issue.labels or 'none'} | "
         f"**Author:** @{issue.author} | **Updated:** {format_date(issue.updated_at)}\n\n"
         f"{_truncated_body(issue.body, 500)}"
         for issue in data.issues
-    ]
-    return "## Open Issues\n\n" + "\n\n".join(rows) + "\n\n"
+    )
 
 
 def _render_pull_requests(data: RepoOverviewData) -> str:
     if not data.pull_requests:
         return ""
-    rows = [
+    return "## Open Pull Requests\n\n" + "".join(
+        _pull_request_block(pull_request) for pull_request in data.pull_requests
+    )
+
+
+def _pull_request_block(pull_request: RepoPullRequest) -> str:
+    snippet = snippet_two_sentences(pull_request.body)
+    snippet_line = f"{snippet}\n" if snippet else ""
+    return (
         f"### #{pull_request.number}: {pull_request.title}"
         f"{' (draft)' if pull_request.is_draft else ''}\n"
         f"**Author:** @{pull_request.author} | "
         f"**Labels:** {pull_request.labels or 'none'} | "
         f"**Updated:** {format_date(pull_request.updated_at)}\n"
-        f"{snippet_two_sentences(pull_request.body)}\n"
-        for pull_request in data.pull_requests
-    ]
-    return "## Open Pull Requests\n\n" + "\n".join(rows) + "\n"
+        f"{snippet_line}\n"
+    )
 
 
 def _render_releases(data: RepoOverviewData) -> str:
     if not data.releases:
         return ""
-    rows = [
+    return "## Recent Releases\n\n" + "".join(
         f"### {release.name or release.tag} (`{release.tag}`)\n"
         f"**Published:** {format_date(release.published_at)}"
         f"{' | **Pre-release**' if release.is_prerelease else ''}\n\n"
         f"{_truncated_body(release.body, 1000)}"
         for release in data.releases
-    ]
-    return "## Recent Releases\n\n" + "\n\n".join(rows) + "\n\n"
+    )
 
 
 def _render_llms_full(data: RepoOverviewData) -> str:
@@ -242,7 +250,13 @@ def _render_footer(data: RepoOverviewData) -> str:
         if data.rate_limit_remaining is not None
         else ""
     )
-    return f"---\n*Fetched via {api_label} at {datetime.now(tz=UTC).isoformat()}{rate_info}*\n"
+    return f"---\n*Fetched via {api_label} at {_iso_millis_z()}{rate_info}*\n"
+
+
+def _iso_millis_z() -> str:
+    """Return the current UTC time as ``YYYY-MM-DDTHH:MM:SS.mmmZ``."""
+    now = datetime.now(tz=UTC)
+    return f"{now.strftime('%Y-%m-%dT%H:%M:%S')}.{now.microsecond // 1000:03d}Z"
 
 
 def _metadata(
@@ -286,4 +300,4 @@ def _truncated_body(text: str, max_chars: int) -> str:
     if not text:
         return ""
     suffix = "..." if len(text) > max_chars else ""
-    return f"{text[:max_chars]}{suffix}\n"
+    return f"{text[:max_chars]}{suffix}\n\n"
