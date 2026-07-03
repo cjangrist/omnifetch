@@ -2,6 +2,11 @@
 
 from __future__ import annotations
 
+import json
+import subprocess
+import sys
+from typing import cast
+
 import pytest
 
 from omnifetch.fetch.engine.waterfall import (
@@ -11,6 +16,28 @@ from omnifetch.fetch.engine.waterfall import (
     Step,
     WATERFALL_STEPS,
 )
+
+
+def _fresh_registered_provider_names() -> set[str]:
+    """Return provider names from a clean interpreter startup import path."""
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            (
+                "import json; "
+                "from omnifetch.fetch.providers import import_all_providers; "
+                "print(json.dumps(sorted(import_all_providers())))"
+            ),
+        ],
+        capture_output=True,
+        check=True,
+        text=True,
+    )
+    parsed: object = json.loads(result.stdout)
+    assert isinstance(parsed, list)
+    assert all(isinstance(item, str) for item in parsed)
+    return set(cast(list[str], parsed))
 
 
 def test_breaker_topology_matches_authoritative_order() -> None:
@@ -89,6 +116,17 @@ def test_serpapi_is_not_auto_selected() -> None:
 
     assert "serpapi" not in provider_names
     assert "supadata" in provider_names
+
+
+def test_registered_providers_are_covered_by_waterfall_topology() -> None:
+    """Every adapter is auto-selected unless explicitly marked direct-only."""
+    registered_provider_names = _fresh_registered_provider_names()
+    topology_provider_names = {
+        provider for step in WATERFALL_STEPS for provider in step.providers
+    } | {breaker.provider for breaker in BREAKERS}
+
+    assert topology_provider_names <= registered_provider_names
+    assert registered_provider_names - topology_provider_names == {"serpapi"}
 
 
 @pytest.mark.parametrize(
