@@ -112,6 +112,10 @@ def test_import_all_providers_imports_package_modules(
         'raise RuntimeError("infra module should be skipped")\n',
         encoding="utf-8",
     )
+    (package / "kimi_proxy.py").write_text(
+        'raise RuntimeError("provider helper module should be skipped")\n',
+        encoding="utf-8",
+    )
     (package / "alpha.py").write_text(
         "\n".join(
             (

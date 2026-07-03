@@ -20,7 +20,7 @@ from omnifetch.fetch.shared.config import ProviderSecrets
 from omnifetch.fetch.shared.types import ErrorType, FetchResult, ProviderError
 
 _DEFAULT_PACKAGE_NAME = "omnifetch.fetch.providers"
-_INFRA_MODULE_NAMES = frozenset({"base", "registry"})
+_INFRA_MODULE_NAMES = frozenset({"base", "kimi_proxy", "registry"})
 
 
 def import_all_providers(
