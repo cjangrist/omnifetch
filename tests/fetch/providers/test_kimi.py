@@ -302,12 +302,12 @@ async def test_scrapfly_proxy_rejects_missing_upstream_response(
                 await proxy_post_via_scrapfly(
                     client,
                     ScrapflyPostRequest(
-                        "kimi",
-                        _KIMI_FETCH_URL,
-                        {"Authorization": "Bearer kimi-secret"},
-                        "{}",
-                        "scrapfly-secret",
-                        60_000,
+                        provider_name="kimi",
+                        target_url=_KIMI_FETCH_URL,
+                        target_headers={"Authorization": "Bearer kimi-secret"},
+                        target_body="{}",
+                        scrapfly_api_key="scrapfly-secret",
+                        timeout_ms=60_000,
                     ),
                 )
 
@@ -329,12 +329,12 @@ async def test_scrapfly_proxy_returns_upstream_response() -> None:
             proxied = await proxy_post_via_scrapfly(
                 client,
                 ScrapflyPostRequest(
-                    "kimi",
-                    _KIMI_FETCH_URL,
-                    {"Authorization": "Bearer kimi-secret"},
-                    "{}",
-                    "scrapfly-secret",
-                    60_000,
+                    provider_name="kimi",
+                    target_url=_KIMI_FETCH_URL,
+                    target_headers={"Authorization": "Bearer kimi-secret"},
+                    target_body="{}",
+                    scrapfly_api_key="scrapfly-secret",
+                    timeout_ms=60_000,
                 ),
             )
 
@@ -373,12 +373,12 @@ async def test_scrapfly_proxy_maps_scrapfly_http_errors(
                 await proxy_post_via_scrapfly(
                     client,
                     ScrapflyPostRequest(
-                        "kimi",
-                        _KIMI_FETCH_URL,
-                        {"Authorization": "Bearer kimi-secret"},
-                        "{}",
-                        "scrapfly-secret",
-                        60_000,
+                        provider_name="kimi",
+                        target_url=_KIMI_FETCH_URL,
+                        target_headers={"Authorization": "Bearer kimi-secret"},
+                        target_body="{}",
+                        scrapfly_api_key="scrapfly-secret",
+                        timeout_ms=60_000,
                     ),
                 )
 

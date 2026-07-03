@@ -64,12 +64,12 @@ class KimiFetchProvider(FetchProvider):
             proxied = await proxy_post_via_scrapfly(
                 self._client,
                 ScrapflyPostRequest(
-                    self.name,
-                    f"{self.base_url}{_FETCH_PATH}",
-                    build_kimi_fetch_headers(api_key),
-                    target_body,
-                    scrapfly_api_key,
-                    self.timeout_ms,
+                    provider_name=self.name,
+                    target_url=f"{self.base_url}{_FETCH_PATH}",
+                    target_headers=build_kimi_fetch_headers(api_key),
+                    target_body=target_body,
+                    scrapfly_api_key=scrapfly_api_key,
+                    timeout_ms=self.timeout_ms,
                 ),
             )
             if not _HTTP_OK_MIN <= proxied.status < _HTTP_OK_MAX:
