@@ -41,17 +41,26 @@ _HTTP_BAD_GATEWAY = 502
 _MAX_FETCH_URL_LENGTH = 2000
 
 
-def build_engine(config: AppConfig) -> Engine:
-    """Build the shared fetch runtime for one FastMCP server instance."""
-    limits = httpx.Limits(
-        max_connections=_HTTP_MAX_CONNECTIONS,
-        max_keepalive_connections=_HTTP_MAX_KEEPALIVE_CONNECTIONS,
-    )
-    client = httpx.AsyncClient(
-        http2=True,
-        follow_redirects=True,
-        limits=limits,
-    )
+def build_engine(
+    config: AppConfig,
+    client: httpx.AsyncClient | None = None,
+) -> Engine:
+    """Build the shared fetch runtime for one FastMCP server instance.
+
+    When ``client`` is None a fresh pooled ``httpx.AsyncClient`` is constructed
+    and adopted by the engine. When a ``client`` is supplied it is used as-is
+    so a composing server can share a single connection pool across engines.
+    """
+    if client is None:
+        limits = httpx.Limits(
+            max_connections=_HTTP_MAX_CONNECTIONS,
+            max_keepalive_connections=_HTTP_MAX_KEEPALIVE_CONNECTIONS,
+        )
+        client = httpx.AsyncClient(
+            http2=True,
+            follow_redirects=True,
+            limits=limits,
+        )
     return Engine(
         unified=UnifiedFetchProvider(config.providers, client),
         client=client,
@@ -163,21 +172,42 @@ def register_http_routes(
         return JSONResponse(response.model_dump(mode="json"))
 
 
-def build_server(config: AppConfig | None = None) -> FastMCP:
+def build_server(
+    config: AppConfig | None = None,
+    engine: Engine | None = None,
+    *,
+    own_engine: bool = True,
+) -> FastMCP:
     """Construct and return a fully-registered FastMCP server.
 
     Strict input validation and error-detail masking are always on — they are
     core guarantees of the server, not runtime-tunable settings.
+
+    When ``engine`` is None one is built from ``config`` and the server lifespan
+    owns it. When an ``engine`` is supplied it is adopted as-is; ``own_engine``
+    then controls whether the lifespan closes its HTTP client. Set
+    ``own_engine=False`` for server composition, where a shared client outlives
+    the mounted server and must not be closed at unmount time. An engine built
+    here is always owned — ``own_engine=False`` together with ``engine=None``
+    would leak the constructed client and is rejected.
     """
     app_config = load_config() if config is None else config
-    engine = build_engine(app_config)
+    if engine is None and not own_engine:
+        raise ValueError(
+            "own_engine=False requires an engine to be supplied; the server "
+            "must own any engine it builds so its HTTP client is closed on "
+            "shutdown. Pass an engine or drop own_engine=False."
+        )
+    if engine is None:
+        engine = build_engine(app_config)
 
     @contextlib.asynccontextmanager
     async def lifespan(_server: FastMCP) -> AsyncIterator[None]:
         try:
             yield
         finally:
-            await engine.client.aclose()
+            if own_engine:
+                await engine.client.aclose()
 
     _LOGGER.info("Building server %r (version %s).", _NAME, _VERSION)
     server: FastMCP = FastMCP(
