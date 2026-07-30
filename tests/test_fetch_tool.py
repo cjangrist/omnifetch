@@ -544,3 +544,9 @@ async def test_owned_injected_engine_client_closes_on_lifespan_exit() -> None:
     finally:
         if not shared_client.is_closed:
             await shared_client.aclose()
+
+
+def test_build_server_rejects_unowned_self_built_engine() -> None:
+    """own_engine=False with engine=None would leak the built client."""
+    with pytest.raises(ValueError, match="own_engine=False requires an engine"):
+        server_module.build_server(load_config(), own_engine=False)
