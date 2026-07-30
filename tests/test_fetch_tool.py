@@ -494,3 +494,53 @@ async def test_server_lifespan_closes_shared_http_client(
     finally:
         if not shared_client.is_closed:
             await shared_client.aclose()
+
+
+async def test_build_engine_adopts_supplied_http_client() -> None:
+    shared_client = httpx.AsyncClient()
+    try:
+        engine = server_module.build_engine(load_config(), client=shared_client)
+        assert engine.client is shared_client
+    finally:
+        await shared_client.aclose()
+
+
+async def test_build_engine_constructs_http_client_when_omitted() -> None:
+    engine = server_module.build_engine(load_config())
+    try:
+        assert engine.client is not None
+        assert engine.client.is_closed is False
+    finally:
+        await engine.client.aclose()
+
+
+async def test_borrowed_engine_client_survives_server_lifespan() -> None:
+    shared_client = httpx.AsyncClient()
+    engine = Engine(unified=_FakeDispatcher(["tavily"]), client=shared_client)
+    server = server_module.build_server(
+        load_config(), engine=engine, own_engine=False
+    )
+
+    try:
+        async with Client(FastMCPTransport(server)) as client:
+            await client.list_tools()
+            assert shared_client.is_closed is False
+        assert shared_client.is_closed is False
+    finally:
+        if not shared_client.is_closed:
+            await shared_client.aclose()
+
+
+async def test_owned_injected_engine_client_closes_on_lifespan_exit() -> None:
+    shared_client = httpx.AsyncClient()
+    engine = Engine(unified=_FakeDispatcher(["tavily"]), client=shared_client)
+    server = server_module.build_server(load_config(), engine=engine)
+
+    try:
+        async with Client(FastMCPTransport(server)) as client:
+            await client.list_tools()
+            assert shared_client.is_closed is False
+        assert shared_client.is_closed is True
+    finally:
+        if not shared_client.is_closed:
+            await shared_client.aclose()
