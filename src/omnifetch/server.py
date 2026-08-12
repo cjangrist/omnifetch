@@ -111,7 +111,7 @@ def _fetch_url_from_payload(payload: dict[str, Any]) -> str | Response:
     return url
 
 
-def _provider_from_payload(payload: dict[str, Any]) -> str | None | Response:
+def _provider_from_payload(payload: dict[str, Any]) -> str | Response | None:
     """Return an optional explicit provider or a 400 response."""
     provider = payload.get("provider")
     if provider is None:
