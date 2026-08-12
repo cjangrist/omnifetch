@@ -198,6 +198,38 @@ async def test_status_map_raises_provider_errors(
     assert str(error_info.value) == expected_message
 
 
+@pytest.mark.parametrize(
+    ("status", "expected_message"),
+    [
+        (401, "Invalid API key"),
+        (403, "API key does not have access to this endpoint"),
+    ],
+)
+async def test_auth_error_logs_do_not_echo_provider_body(
+    caplog: pytest.LogCaptureFixture,
+    status: int,
+    expected_message: str,
+) -> None:
+    credential = "invalid-integration-test-credential"
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            status,
+            json={"message": f"Invalid api key: {credential}"},
+            request=request,
+        )
+
+    with caplog.at_level(logging.WARNING, logger="omnifetch.fetch.http"):
+        async with _mock_client(httpx.MockTransport(handler)) as client:
+            with pytest.raises(ProviderError) as error_info:
+                await http_text(client, "provider", "https://api.test/auth")
+    messages = [record.getMessage() for record in caplog.records]
+    assert any(expected_message in message for message in messages)
+    assert not any(credential in message for message in messages)
+    assert expected_message in str(error_info.value)
+    assert credential not in str(error_info.value)
+
+
 async def test_expected_status_returns_raw_body_and_status() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(404, text="missing", request=request)
