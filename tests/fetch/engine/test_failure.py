@@ -31,12 +31,14 @@ def test_patterns_are_pre_lowercased() -> None:
     )
 
 
-@pytest.mark.parametrize("provider", ["github", "supadata", "tavily", None])
+@pytest.mark.parametrize(
+    "provider", ["github", "serpapi", "supadata", "tavily", None]
+)
 def test_empty_content_is_always_failure(provider: str | None) -> None:
     assert is_fetch_failure(_result(""), provider) is True
 
 
-@pytest.mark.parametrize("provider", ["github", "supadata"])
+@pytest.mark.parametrize("provider", ["github", "serpapi", "supadata"])
 def test_api_native_providers_bypass_length_gate(provider: str) -> None:
     assert (
         is_fetch_failure(_result("short but valid", provider), provider)

@@ -58,7 +58,12 @@ _CANONICAL_WATERFALL_PROVIDER_ORDER = (
     "opengraph",
 )
 
-_CANONICAL_BREAKER_PROVIDERS = ("github", "supadata", "sociavault")
+_CANONICAL_BREAKER_PROVIDERS = (
+    "github",
+    "supadata",
+    "serpapi",
+    "sociavault",
+)
 
 _SKIP_PROVIDER_PARITY_CASES = (
     SkipProviderParityCase("missing", None, ()),
@@ -109,6 +114,7 @@ _FETCH_FAILURE_PARITY_CASES = (
     FetchFailureParityCase("short-non-native", "tavily", "short", True),
     FetchFailureParityCase("short-github", "github", "short", False),
     FetchFailureParityCase("short-supadata", "supadata", "short", False),
+    FetchFailureParityCase("short-serpapi", "serpapi", "short", False),
     FetchFailureParityCase(
         "cloudflare-challenge",
         "firecrawl",
@@ -156,6 +162,7 @@ def test_provider_selection_topology_matches_ts_parity_ledger() -> None:
     )
     assert _waterfall_provider_order() == _CANONICAL_WATERFALL_PROVIDER_ORDER
     assert "serpapi" not in _waterfall_provider_order()
+    assert "serpapi" in _CANONICAL_BREAKER_PROVIDERS
 
 
 @pytest.mark.parametrize(

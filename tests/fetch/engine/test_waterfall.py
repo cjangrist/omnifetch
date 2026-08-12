@@ -30,6 +30,11 @@ def test_breaker_topology_matches_authoritative_order() -> None:
             domains=("youtube.com", "youtu.be"),
         ),
         Breaker(
+            name="youtube_serpapi",
+            provider="serpapi",
+            domains=("youtube.com", "youtu.be"),
+        ),
+        Breaker(
             name="social_media",
             provider="sociavault",
             domains=(
@@ -82,13 +87,14 @@ def test_waterfall_topology_matches_authoritative_order() -> None:
     assert expected == WATERFALL_STEPS
 
 
-def test_serpapi_is_not_auto_selected() -> None:
-    provider_names = {
+def test_serpapi_is_selected_only_for_youtube_urls() -> None:
+    waterfall_provider_names = {
         provider for step in WATERFALL_STEPS for provider in step.providers
-    } | {breaker.provider for breaker in BREAKERS}
+    }
+    breaker_provider_names = {breaker.provider for breaker in BREAKERS}
 
-    assert "serpapi" not in provider_names
-    assert "supadata" in provider_names
+    assert "serpapi" not in waterfall_provider_names
+    assert "serpapi" in breaker_provider_names
 
 
 @pytest.mark.parametrize(
