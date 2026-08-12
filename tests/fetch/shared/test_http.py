@@ -221,11 +221,13 @@ async def test_auth_error_logs_do_not_echo_provider_body(
 
     with caplog.at_level(logging.WARNING, logger="omnifetch.fetch.http"):
         async with _mock_client(httpx.MockTransport(handler)) as client:
-            with pytest.raises(ProviderError):
+            with pytest.raises(ProviderError) as error_info:
                 await http_text(client, "provider", "https://api.test/auth")
     messages = [record.getMessage() for record in caplog.records]
     assert any(expected_message in message for message in messages)
     assert not any(credential in message for message in messages)
+    assert expected_message in str(error_info.value)
+    assert credential not in str(error_info.value)
 
 
 async def test_expected_status_returns_raw_body_and_status() -> None:

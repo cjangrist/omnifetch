@@ -37,6 +37,10 @@ _HTTP_FORBIDDEN = 403
 _HTTP_NOT_FOUND = 404
 _HTTP_TOO_MANY_REQUESTS = 429
 _HTTP_SERVER_ERROR_MIN = 500
+_AUTH_REDACTED_MESSAGES = {
+    _HTTP_UNAUTHORIZED: "Invalid API key",
+    _HTTP_FORBIDDEN: "API key does not have access to this endpoint",
+}
 _SENSITIVE_QUERY_PARAMS = frozenset(
     {"api_key", "key", "token", "app_id", "x-api-key", "apikey"}
 )
@@ -172,19 +176,14 @@ def _raise_for_status(
         return
 
     message = _parse_message(raw, reason_phrase)
-    if status == _HTTP_UNAUTHORIZED:
-        message = "Invalid API key"
-    elif status == _HTTP_FORBIDDEN:
-        message = "API key does not have access to this endpoint"
+    message = _AUTH_REDACTED_MESSAGES.get(status, message)
     _LOGGER.warning(
         "HTTP error response provider=%s status=%s message=%s",
         provider,
         status,
         message,
     )
-    if status == _HTTP_UNAUTHORIZED:
-        raise ProviderError(ErrorType.API_ERROR, message, provider)
-    if status == _HTTP_FORBIDDEN:
+    if status in _AUTH_REDACTED_MESSAGES:
         raise ProviderError(ErrorType.API_ERROR, message, provider)
     if status == _HTTP_NOT_FOUND:
         raise ProviderError(
