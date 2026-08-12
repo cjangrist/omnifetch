@@ -10,7 +10,7 @@ from __future__ import annotations
 from omnifetch.fetch.shared.types import FetchResult
 
 _MIN_CONTENT_CHARS = 200
-_API_NATIVE_PROVIDERS = frozenset({"github", "supadata"})
+_API_NATIVE_PROVIDERS = frozenset({"github", "serpapi", "supadata"})
 _JUNK_AMBIGUOUS_MAX_CONTENT_CHARS = 3000
 
 _CHALLENGE_PATTERNS = (

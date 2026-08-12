@@ -46,6 +46,11 @@ BREAKERS: tuple[Breaker, ...] = (
         domains=YOUTUBE_DOMAINS,
     ),
     Breaker(
+        name="youtube_serpapi",
+        provider="serpapi",
+        domains=YOUTUBE_DOMAINS,
+    ),
+    Breaker(
         name="social_media",
         provider="sociavault",
         domains=(

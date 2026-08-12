@@ -302,6 +302,9 @@ async def test_failed_breaker_falls_through_to_next_matching_breaker() -> None:
             "supadata": _ProviderBehavior(
                 error=_provider_error("supadata", ErrorType.API_ERROR)
             ),
+            "serpapi": _ProviderBehavior(
+                error=_provider_error("serpapi", ErrorType.API_ERROR)
+            ),
             "sociavault": _ProviderBehavior(_result("sociavault")),
             "tavily": _ProviderBehavior(_result("tavily")),
         }
@@ -313,10 +316,35 @@ async def test_failed_breaker_falls_through_to_next_matching_breaker() -> None:
     )
 
     assert result.provider_used == "sociavault"
-    assert result.providers_attempted == ("supadata", "sociavault")
+    assert result.providers_attempted == (
+        "supadata",
+        "serpapi",
+        "sociavault",
+    )
     assert [failure.provider for failure in result.providers_failed] == [
-        "supadata"
+        "supadata",
+        "serpapi",
     ]
+
+
+async def test_serpapi_youtube_breaker_accepts_short_transcript() -> None:
+    dispatcher = _FakeDispatcher(
+        {
+            "serpapi": _ProviderBehavior(
+                _result("serpapi", content="short transcript")
+            ),
+            "tavily": _ProviderBehavior(_result("tavily")),
+        }
+    )
+
+    result = await run_fetch_race(
+        dispatcher,
+        "https://www.youtube.com/watch?v=abc",
+    )
+
+    assert result.provider_used == "serpapi"
+    assert result.providers_attempted == ("serpapi",)
+    assert dispatcher.calls == ["serpapi"]
 
 
 async def test_later_breaker_not_found_preserves_prior_success() -> None:
