@@ -172,6 +172,10 @@ def _raise_for_status(
         return
 
     message = _parse_message(raw, reason_phrase)
+    if status == _HTTP_UNAUTHORIZED:
+        message = "Invalid API key"
+    elif status == _HTTP_FORBIDDEN:
+        message = "API key does not have access to this endpoint"
     _LOGGER.warning(
         "HTTP error response provider=%s status=%s message=%s",
         provider,
@@ -179,13 +183,9 @@ def _raise_for_status(
         message,
     )
     if status == _HTTP_UNAUTHORIZED:
-        raise ProviderError(ErrorType.API_ERROR, "Invalid API key", provider)
+        raise ProviderError(ErrorType.API_ERROR, message, provider)
     if status == _HTTP_FORBIDDEN:
-        raise ProviderError(
-            ErrorType.API_ERROR,
-            "API key does not have access to this endpoint",
-            provider,
-        )
+        raise ProviderError(ErrorType.API_ERROR, message, provider)
     if status == _HTTP_NOT_FOUND:
         raise ProviderError(
             ErrorType.API_ERROR,
