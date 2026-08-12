@@ -1,5 +1,5 @@
 [build-system]
-requires = ["hatchling==1.31.0"]
+requires = ["hatchling==1.32.0"]
 build-backend = "hatchling.build"
 
 [project]
@@ -21,11 +21,11 @@ classifiers = [
   "Programming Language :: Python :: 3.13",
 ]
 dependencies = [
-  "fastmcp==3.4.4",
+  "fastmcp==3.4.7",
   "httpx[http2]==0.28.1",
   "logdecorator==2.5",
   "pydantic==2.13.4",
-  "pydantic-settings==2.14.2",
+  "pydantic-settings==2.15.0",
   "python-dotenv==1.2.2",
   "rich==15.0.0",
   "tenacity==9.1.4",
@@ -34,8 +34,8 @@ dependencies = [
 
 [project.optional-dependencies]
 telemetry = [
-  "opentelemetry-sdk==1.43.0",
-  "opentelemetry-exporter-otlp==1.43.0",
+  "opentelemetry-sdk==1.44.0",
+  "opentelemetry-exporter-otlp==1.44.0",
 ]
 [project.scripts]
 omnifetch = "omnifetch.__main__:main"
@@ -49,12 +49,12 @@ dev = [
   "docker==7.2.0",
   "mypy==2.3.0",
   "pip-audit==2.10.1",
-  "pre-commit==4.6.0",
+  "pre-commit==4.6.2",
   "pytest==9.1.1",
   "pytest-asyncio==1.4.0",
   "pytest-cov==7.1.0",
   "respx==0.23.1",
-  "ruff==0.15.21",
+  "ruff==0.16.2",
 ]
 
 [tool.hatch.version]
@@ -115,7 +115,7 @@ src = ["src", "tests"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "N", "UP", "B", "A", "C4", "SIM", "TID", "RUF", "ANN", "PL", "D"]
-ignore = ["ANN401"]
+ignore = ["ANN401", "PLR0917"]
 
 [tool.ruff.lint.per-file-ignores]
 # Lazy imports are intentional: the OpenTelemetry SDK is an optional extra, and
