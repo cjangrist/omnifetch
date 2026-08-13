@@ -19,11 +19,11 @@ from omnifetch.fetch.providers.scrapegraphai import (
 from omnifetch.fetch.shared.config import ProviderSecrets
 from omnifetch.fetch.shared.types import ErrorType, FetchResult, ProviderError
 
-_MARKDOWNIFY_URL = "https://api.scrapegraphai.com/v1/markdownify"
+_SCRAPE_URL = "https://v2-api.scrapegraphai.com/api/scrape"
 _TARGET_URL = "https://example.test/article"
 _MARKDOWN = "# ScrapeGraphAI\n\nBody"
 _NO_CONTENT_MESSAGE = (
-    "Failed to fetch URL content: ScrapeGraphAI returned empty result"
+    "Failed to fetch URL content: ScrapeGraphAI returned empty markdown data"
 )
 
 
@@ -40,20 +40,21 @@ async def test_scrapegraphai_fetches_markdown() -> None:
         def handler(request: httpx.Request) -> httpx.Response:
             assert request.headers["SGAI-APIKEY"] == "scrapegraphai-secret"
             assert request.headers["Content-Type"] == "application/json"
-            assert _json_request(request) == {"website_url": _TARGET_URL}
+            assert _json_request(request) == {
+                "url": _TARGET_URL,
+                "formats": [{"type": "markdown"}],
+            }
             return httpx.Response(
                 200,
                 json={
-                    "request_id": "request-1",
-                    "status": "completed",
-                    "website_url": _TARGET_URL,
-                    "result": _MARKDOWN,
-                    "error": "",
+                    "id": "request-1",
+                    "results": {"markdown": {"data": [_MARKDOWN]}},
+                    "metadata": {"contentType": "text/html"},
                 },
                 request=request,
             )
 
-        router.post(_MARKDOWNIFY_URL).mock(side_effect=handler)
+        router.post(_SCRAPE_URL).mock(side_effect=handler)
         async with httpx.AsyncClient() as client:
             provider = ScrapeGraphAIFetchProvider(
                 ProviderSecrets(
@@ -68,7 +69,10 @@ async def test_scrapegraphai_fetches_markdown() -> None:
         title="ScrapeGraphAI",
         content=_MARKDOWN,
         source_provider="scrapegraphai",
-        metadata={"request_id": "request-1"},
+        metadata={
+            "request_id": "request-1",
+            "content_type": "text/html",
+        },
     )
 
 
@@ -85,43 +89,23 @@ async def test_scrapegraphai_requires_key() -> None:
 @pytest.mark.parametrize(
     ("payload", "message"),
     [
+        ({"id": "request-1"}, _NO_CONTENT_MESSAGE),
+        ({"id": "request-1", "results": {}}, _NO_CONTENT_MESSAGE),
         (
-            {
-                "request_id": "request-1",
-                "status": "failed",
-                "website_url": _TARGET_URL,
-                "result": None,
-                "error": "blocked",
-            },
-            "Failed to fetch URL content: ScrapeGraphAI failed: blocked",
+            {"id": "request-1", "results": {"markdown": {}}},
+            _NO_CONTENT_MESSAGE,
         ),
         (
             {
-                "request_id": "request-1",
-                "status": "failed",
-                "website_url": _TARGET_URL,
-                "result": None,
-                "error": "",
-            },
-            "Failed to fetch URL content: ScrapeGraphAI failed: unknown error",
-        ),
-        (
-            {
-                "request_id": "request-1",
-                "status": "completed",
-                "website_url": _TARGET_URL,
-                "result": "",
-                "error": "",
+                "id": "request-1",
+                "results": {"markdown": {"data": []}},
             },
             _NO_CONTENT_MESSAGE,
         ),
         (
             {
-                "request_id": "request-1",
-                "status": "completed",
-                "website_url": _TARGET_URL,
-                "result": None,
-                "error": "",
+                "id": "request-1",
+                "results": {"markdown": {"data": ["", "  \n"]}},
             },
             _NO_CONTENT_MESSAGE,
         ),
@@ -132,7 +116,7 @@ async def test_scrapegraphai_rejects_failed_or_empty_results(
     message: str,
 ) -> None:
     with respx.mock(assert_all_called=True) as router:
-        router.post(_MARKDOWNIFY_URL).respond(json=payload)
+        router.post(_SCRAPE_URL).respond(json=payload)
         async with httpx.AsyncClient() as client:
             provider = ScrapeGraphAIFetchProvider(
                 ProviderSecrets(
@@ -147,14 +131,14 @@ async def test_scrapegraphai_rejects_failed_or_empty_results(
     assert str(error_info.value) == message
 
 
-async def test_scrapegraphai_accepts_non_failed_status_with_result() -> None:
+async def test_scrapegraphai_uses_first_non_empty_markdown() -> None:
     with respx.mock(assert_all_called=True) as router:
-        router.post(_MARKDOWNIFY_URL).respond(
+        router.post(_SCRAPE_URL).respond(
             json={
-                "request_id": "request-1",
-                "status": "queued",
-                "result": _MARKDOWN,
-                "error": "",
+                "id": "request-1",
+                "results": {
+                    "markdown": {"data": ["", "  ", _MARKDOWN, "unused"]}
+                },
             }
         )
         async with httpx.AsyncClient() as client:
@@ -177,7 +161,7 @@ async def test_scrapegraphai_accepts_non_failed_status_with_result() -> None:
 
 async def test_scrapegraphai_maps_http_errors() -> None:
     with respx.mock(assert_all_called=True) as router:
-        router.post(_MARKDOWNIFY_URL).respond(
+        router.post(_SCRAPE_URL).respond(
             401,
             json={"message": "bad key"},
         )
@@ -214,13 +198,10 @@ async def test_unified_dispatcher_uses_scrapegraphai(
     importlib.reload(scrapegraphai_module)
 
     with respx.mock(assert_all_called=True) as router:
-        router.post(_MARKDOWNIFY_URL).respond(
+        router.post(_SCRAPE_URL).respond(
             json={
-                "request_id": "request-1",
-                "status": "completed",
-                "website_url": _TARGET_URL,
-                "result": _MARKDOWN,
-                "error": "",
+                "id": "request-1",
+                "results": {"markdown": {"data": [_MARKDOWN]}},
             }
         )
         async with httpx.AsyncClient() as client:
