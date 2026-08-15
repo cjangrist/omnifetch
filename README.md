@@ -22,6 +22,8 @@ JSON-Schema-enforced toolset over the [Model Context Protocol](https://modelcont
 - **Observable** — every tool call is logged with its arguments via
   [`logdecorator`](https://github.com/sighalt/logdecorator); logs go to stderr so the
   stdio transport stays clean.
+- **Cachelib storage** — one async, fail-open adapter selects in-memory,
+  filesystem, or Redis storage without blocking the event loop.
 - **Reproducible & guarded** — exact-pinned deps with a committed `uv.lock`, a CI matrix on
   Python 3.11–3.13, and pre-commit + a protected `main` to keep extensions in line.
 
@@ -120,9 +122,11 @@ precedence.
 | `OMNIFETCH_HOST` | `127.0.0.1` | Bind host (http/sse) |
 | `OMNIFETCH_PORT` | `8000` | Bind port (http/sse) |
 | `OMNIFETCH_LOG_LEVEL` | `INFO` | Logging level |
-| `OMNIFETCH_CACHE_BACKEND` | `memory` | Fetch cache backend: `memory`, `redis`, or `disk` |
+| `OMNIFETCH_CACHE_BACKEND` | `memory` | Cachelib storage: `memory`, `redis`, or `disk` |
 | `OMNIFETCH_REDIS_URL` | _(empty)_ | Redis URL when `OMNIFETCH_CACHE_BACKEND=redis` |
 | `OMNIFETCH_DISK_CACHE_PATH` | `.cache/omnifetch` | Disk cache path when `OMNIFETCH_CACHE_BACKEND=disk` |
+| `OMNIFETCH_CACHE_MAX_ENTRIES` | `10000` | Maximum entries retained by memory/filesystem storage |
+| `OMNIFETCH_FETCH_CACHE_TTL_SECONDS` | `86400` | Successful-fetch TTL reserved for fetch reuse |
 | `OMNIFETCH_HTTP_LIMIT_PER_HOST` | `20` | Per-host async HTTP concurrency cap |
 | `OMNIFETCH_HTTP_TRANSIENT_RETRIES` | `0` | Transient fetch HTTP retries before provider failover |
 | `OMNIFETCH_UVLOOP` | `auto` | `auto`/`on` installs uvloop; `off` keeps the default asyncio loop |
@@ -132,6 +136,26 @@ precedence.
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | _(empty)_ | OTLP collector endpoint |
 | `OTEL_EXPORTER_OTLP_PROTOCOL` | `http/protobuf` | `http/protobuf` or `grpc` |
 | `OTEL_SDK_DISABLED` | `false` | Force-disable the SDK |
+
+### Cache storage
+
+Omnifetch constructs one
+[`cachelib`](https://github.com/pallets-eco/cachelib) backend at startup:
+`SimpleCache` for `memory`, `FileSystemCache` for `disk`, or `RedisCache` over
+a `redis-py` URL client for `redis`. The async server lifespan performs the
+Redis startup `PING`, so synchronous composition never blocks an active event
+loop; startup fails with a bounded error when the URL is unavailable.
+All request-time cache operations run in worker threads and fail open; values
+and connection details are never logged. Stored values use JSON rather than
+pickle.
+
+Use each filesystem cache directory from one Omnifetch process only. Cachelib's
+filesystem metadata is protected from concurrent threads within that process,
+but it does not coordinate writers across processes or unrelated applications.
+
+This release establishes storage and lifecycle ownership only. It does not yet
+reuse fetch responses; `OMNIFETCH_FETCH_CACHE_TTL_SECONDS` becomes effective
+when successful-fetch caching is enabled.
 
 Fetch provider secrets use provider-native names with no `OMNIFETCH_` prefix.
 Configure any subset; missing providers remain disabled.
@@ -217,6 +241,7 @@ PR title (which becomes the squash commit on `main`).
 ```
 src/omnifetch/
   __main__.py    CLI entry point (dotenv → config → logging → telemetry → serve)
+  cache/         async cachelib memory/filesystem/Redis adapter
   config.py      typed settings (pydantic-settings)
   logging.py     colorized stderr logging
   telemetry.py   opt-in OpenTelemetry bootstrap

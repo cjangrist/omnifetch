@@ -21,6 +21,10 @@ OtelProtocolName = Literal["grpc", "http/protobuf"]
 CacheBackendName = Literal["memory", "redis", "disk"]
 UvloopModeName = Literal["auto", "off", "on"]
 
+DEFAULT_CACHE_MAX_ENTRIES = 10000
+DEFAULT_DISK_CACHE_PATH = ".cache/omnifetch"
+DEFAULT_FETCH_CACHE_TTL_SECONDS = 86400
+
 
 class ServerSettings(BaseSettings):
     """Runtime settings for the FastMCP server."""
@@ -45,10 +49,24 @@ class ServerSettings(BaseSettings):
     cache_backend: CacheBackendName = Field(
         default="memory", validation_alias="OMNIFETCH_CACHE_BACKEND"
     )
-    redis_url: str = Field(default="", validation_alias="OMNIFETCH_REDIS_URL")
+    redis_url: str = Field(
+        default="",
+        repr=False,
+        validation_alias="OMNIFETCH_REDIS_URL",
+    )
     disk_cache_path: str = Field(
-        default=".cache/omnifetch",
+        default=DEFAULT_DISK_CACHE_PATH,
         validation_alias="OMNIFETCH_DISK_CACHE_PATH",
+    )
+    cache_max_entries: int = Field(
+        default=DEFAULT_CACHE_MAX_ENTRIES,
+        ge=1,
+        validation_alias="OMNIFETCH_CACHE_MAX_ENTRIES",
+    )
+    fetch_cache_ttl_seconds: int = Field(
+        default=DEFAULT_FETCH_CACHE_TTL_SECONDS,
+        ge=1,
+        validation_alias="OMNIFETCH_FETCH_CACHE_TTL_SECONDS",
     )
     http_limit_per_host: int = Field(
         default=20, ge=1, validation_alias="OMNIFETCH_HTTP_LIMIT_PER_HOST"
