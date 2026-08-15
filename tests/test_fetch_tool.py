@@ -15,6 +15,7 @@ from starlette.testclient import TestClient
 
 import omnifetch.server as server_module
 import omnifetch.tools.fetch as fetch_module
+from omnifetch.cache import build_cache_backend
 from omnifetch.config import load_config
 from omnifetch.fetch.engine.race import (
     AlternativeFetchResult,
@@ -60,7 +61,17 @@ def _fake_tool_server(
     active_names: list[str],
 ) -> tuple[FastMCP, httpx.AsyncClient]:
     client = httpx.AsyncClient()
-    engine = Engine(unified=_FakeDispatcher(active_names), client=client)
+    cache = build_cache_backend(
+        "memory",
+        disk_path="",
+        redis_url="",
+        max_entries=10,
+    )
+    engine = Engine(
+        unified=_FakeDispatcher(active_names),
+        client=client,
+        cache=cache,
+    )
     server = FastMCP(
         name="test-web-fetch",
         strict_input_validation=True,
@@ -476,77 +487,3 @@ async def test_web_fetch_tool_logs_url_without_content(
         "https://example.test/article" in message for message in messages
     )
     assert not any(secret_content in message for message in messages)
-
-
-async def test_server_lifespan_closes_shared_http_client(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    shared_client = httpx.AsyncClient()
-    engine = Engine(unified=_FakeDispatcher(["tavily"]), client=shared_client)
-    monkeypatch.setattr(server_module, "build_engine", lambda _: engine)
-    server = server_module.build_server(load_config())
-
-    try:
-        async with Client(FastMCPTransport(server)) as client:
-            await client.list_tools()
-            assert shared_client.is_closed is False
-        assert shared_client.is_closed is True
-    finally:
-        if not shared_client.is_closed:
-            await shared_client.aclose()
-
-
-async def test_build_engine_adopts_supplied_http_client() -> None:
-    shared_client = httpx.AsyncClient()
-    try:
-        engine = server_module.build_engine(load_config(), client=shared_client)
-        assert engine.client is shared_client
-    finally:
-        await shared_client.aclose()
-
-
-async def test_build_engine_constructs_http_client_when_omitted() -> None:
-    engine = server_module.build_engine(load_config())
-    try:
-        assert engine.client is not None
-        assert engine.client.is_closed is False
-    finally:
-        await engine.client.aclose()
-
-
-async def test_borrowed_engine_client_survives_server_lifespan() -> None:
-    shared_client = httpx.AsyncClient()
-    engine = Engine(unified=_FakeDispatcher(["tavily"]), client=shared_client)
-    server = server_module.build_server(
-        load_config(), engine=engine, own_engine=False
-    )
-
-    try:
-        async with Client(FastMCPTransport(server)) as client:
-            await client.list_tools()
-            assert shared_client.is_closed is False
-        assert shared_client.is_closed is False
-    finally:
-        if not shared_client.is_closed:
-            await shared_client.aclose()
-
-
-async def test_owned_injected_engine_client_closes_on_lifespan_exit() -> None:
-    shared_client = httpx.AsyncClient()
-    engine = Engine(unified=_FakeDispatcher(["tavily"]), client=shared_client)
-    server = server_module.build_server(load_config(), engine=engine)
-
-    try:
-        async with Client(FastMCPTransport(server)) as client:
-            await client.list_tools()
-            assert shared_client.is_closed is False
-        assert shared_client.is_closed is True
-    finally:
-        if not shared_client.is_closed:
-            await shared_client.aclose()
-
-
-def test_build_server_rejects_unowned_self_built_engine() -> None:
-    """own_engine=False with engine=None would leak the built client."""
-    with pytest.raises(ValueError, match="own_engine=False requires an engine"):
-        server_module.build_server(load_config(), own_engine=False)

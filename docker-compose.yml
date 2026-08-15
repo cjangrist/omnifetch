@@ -4,9 +4,16 @@ services:
     image: omnifetch:local
     ports:
       - "${OMNIFETCH_DOCKER_PORT:-8000}:8000"
+    volumes:
+      - omnifetch-cache:/app/.cache/omnifetch
     environment:
       - TAVILY_API_KEY
       - FIRECRAWL_API_KEY
+      - OMNIFETCH_CACHE_BACKEND
+      - OMNIFETCH_REDIS_URL
+      - OMNIFETCH_DISK_CACHE_PATH
+      - OMNIFETCH_CACHE_MAX_ENTRIES
+      - OMNIFETCH_FETCH_CACHE_TTL_SECONDS
       - OMNIFETCH_LOG_LEVEL
       - OMNIFETCH_REST_WEB_FETCH
       - OMNIFETCH_UVLOOP
@@ -21,3 +28,6 @@ services:
       retries: 3
       start_period: 5s
     restart: unless-stopped
+
+volumes:
+  omnifetch-cache:
