@@ -211,7 +211,7 @@ async def _write_fetch_cache(
 def _claim_fetch_flight(
     engine: Engine,
     key: str,
-) -> tuple[bool, asyncio.Future[None]]:
+) -> tuple[bool, asyncio.Future[FetchResponse | None]]:
     """Return whether this caller leads the in-process fetch flight."""
     existing = engine.fetch_flights.get(key)
     if existing is not None:
@@ -224,13 +224,14 @@ def _claim_fetch_flight(
 def _release_fetch_flight(
     engine: Engine,
     key: str,
-    completion: asyncio.Future[None],
+    completion: asyncio.Future[FetchResponse | None],
+    response: FetchResponse | None,
 ) -> None:
-    """Release one flight and wake every waiter after any leader outcome."""
+    """Release one flight and publish its validated response to waiters."""
     if engine.fetch_flights.get(key) is completion:
         del engine.fetch_flights[key]
     if not completion.done():
-        completion.set_result(None)
+        completion.set_result(response)
 
 
 async def _fetch_and_store(
@@ -325,18 +326,22 @@ async def execute_web_fetch(
             "Fetch cache miss coalesced for key %s",
             _cache_key_reference(cache_key),
         )
-        await asyncio.shield(completion)
+        shared_response = await asyncio.shield(completion)
+        if shared_response is not None:
+            return shared_response
 
+    response: FetchResponse | None = None
     try:
-        return await _fetch_and_store(
+        response = await _fetch_and_store(
             engine,
             normalized_url,
             provider,
             skip,
             cache_key,
         )
+        return response
     finally:
-        _release_fetch_flight(engine, cache_key, completion)
+        _release_fetch_flight(engine, cache_key, completion, response)
 
 
 def register_web_fetch_tool(server: FastMCP, engine: Engine) -> None:

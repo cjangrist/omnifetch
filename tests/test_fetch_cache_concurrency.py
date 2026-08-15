@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections.abc import AsyncIterator, Awaitable, Callable, Iterable
+from unittest.mock import AsyncMock, MagicMock
 
 import httpx
 import pytest
@@ -12,11 +13,12 @@ from fastmcp import Client
 from fastmcp.client.transports import FastMCPTransport
 
 import omnifetch.tools.fetch as fetch_module
-from omnifetch.cache import build_cache_backend
+from omnifetch.cache import build_cache_backend, CacheBackend
 from omnifetch.config import load_config
 from omnifetch.fetch.engine.race import FetchRaceResult
 from omnifetch.fetch.engine.runtime import Engine
 from omnifetch.fetch.shared.types import ErrorType, FetchResult, ProviderError
+from omnifetch.schemas import FetchResponse
 from omnifetch.server import build_server
 from omnifetch.tools.fetch import execute_web_fetch
 
@@ -107,7 +109,7 @@ def _track_follower_claim(
     def claim(
         engine: Engine,
         key: str,
-    ) -> tuple[bool, asyncio.Future[None]]:
+    ) -> tuple[bool, asyncio.Future[FetchResponse | None]]:
         result = original_claim(engine, key)
         if not result[0]:
             follower_claimed.set()
@@ -151,6 +153,52 @@ async def test_concurrent_identical_misses_run_one_provider_race(
     assert calls == 1
     assert cache_engine.fetch_flights == {}
     assert any("miss coalesced" in message for message in caplog.messages)
+
+
+async def test_waiters_reuse_response_when_cache_write_does_not_persist(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    started = asyncio.Event()
+    release = asyncio.Event()
+    follower_claimed = _track_follower_claim(monkeypatch)
+    calls = 0
+    cache = MagicMock(spec=CacheBackend)
+    cache.get = AsyncMock(return_value=None)
+    cache.set = AsyncMock(return_value=False)
+    engine = Engine(
+        unified=_FakeDispatcher(),
+        client=httpx.AsyncClient(),
+        cache=cache,
+        owns_cache=False,
+    )
+
+    async def run(*_args: object, **_kwargs: object) -> FetchRaceResult:
+        nonlocal calls
+        calls += 1
+        started.set()
+        await release.wait()
+        return _race("https://example.test/non-persisting")
+
+    monkeypatch.setattr(fetch_module, "run_fetch_race", run)
+    try:
+        leader = asyncio.create_task(
+            execute_web_fetch(engine, "https://example.test/non-persisting")
+        )
+        await started.wait()
+        waiter = asyncio.create_task(
+            execute_web_fetch(engine, "https://example.test/non-persisting")
+        )
+        await follower_claimed.wait()
+        release.set()
+        first, second = await asyncio.gather(leader, waiter)
+
+        assert first == second
+        assert calls == 1
+        assert cache.get.await_count == 2
+        cache.set.assert_awaited_once()
+        assert engine.fetch_flights == {}
+    finally:
+        await engine.aclose()
 
 
 async def test_leader_failure_releases_waiter_to_retry(
@@ -282,11 +330,28 @@ async def test_release_ignores_replaced_and_completed_flight(
     original.set_result(None)
     cache_engine.fetch_flights[key] = replacement
 
-    fetch_module._release_fetch_flight(cache_engine, key, original)
+    response = FetchResponse(
+        url="https://example.test/release",
+        title="Release",
+        content="content",
+        source_provider="tavily",
+        total_duration_ms=1,
+    )
+    fetch_module._release_fetch_flight(
+        cache_engine,
+        key,
+        original,
+        response,
+    )
 
     assert cache_engine.fetch_flights[key] is replacement
     replacement.set_result(None)
-    fetch_module._release_fetch_flight(cache_engine, key, replacement)
+    fetch_module._release_fetch_flight(
+        cache_engine,
+        key,
+        replacement,
+        response,
+    )
     assert cache_engine.fetch_flights == {}
 
 
