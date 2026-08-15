@@ -10,6 +10,7 @@ import httpx
 from omnifetch.cache import CacheBackend
 from omnifetch.config import DEFAULT_FETCH_CACHE_TTL_SECONDS
 from omnifetch.fetch.engine.race import FetchDispatcher
+from omnifetch.schemas import FetchResponse
 
 
 @dataclass(frozen=True, slots=True)
@@ -25,6 +26,15 @@ class Engine:
     client: httpx.AsyncClient
     cache: CacheBackend
     fetch_cache_ttl_seconds: int = DEFAULT_FETCH_CACHE_TTL_SECONDS
+    fetch_flights: dict[
+        str,
+        asyncio.Future[FetchResponse | None],
+    ] = field(
+        default_factory=dict,
+        init=False,
+        repr=False,
+        compare=False,
+    )
     owns_client: bool = True
     owns_cache: bool = True
     _close_lock: asyncio.Lock = field(

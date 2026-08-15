@@ -126,7 +126,7 @@ precedence.
 | `OMNIFETCH_REDIS_URL` | _(empty)_ | Redis URL when `OMNIFETCH_CACHE_BACKEND=redis` |
 | `OMNIFETCH_DISK_CACHE_PATH` | `.cache/omnifetch` | Disk cache path when `OMNIFETCH_CACHE_BACKEND=disk` |
 | `OMNIFETCH_CACHE_MAX_ENTRIES` | `10000` | Maximum entries retained by memory/filesystem storage |
-| `OMNIFETCH_FETCH_CACHE_TTL_SECONDS` | `86400` | Successful-fetch TTL reserved for fetch reuse |
+| `OMNIFETCH_FETCH_CACHE_TTL_SECONDS` | `86400` | Successful fetch-response TTL |
 | `OMNIFETCH_HTTP_LIMIT_PER_HOST` | `20` | Per-host async HTTP concurrency cap |
 | `OMNIFETCH_HTTP_TRANSIENT_RETRIES` | `0` | Transient fetch HTTP retries before provider failover |
 | `OMNIFETCH_UVLOOP` | `auto` | `auto`/`on` installs uvloop; `off` keeps the default asyncio loop |
@@ -155,9 +155,12 @@ but it does not coordinate writers across processes or unrelated applications.
 Docker Compose persists the default disk path in its `omnifetch-cache` named
 volume so container recreation does not discard filesystem cache entries.
 
-This release establishes storage and lifecycle ownership only. It does not yet
-reuse fetch responses; `OMNIFETCH_FETCH_CACHE_TTL_SECONDS` becomes effective
-when successful-fetch caching is enabled.
+Successful `web_fetch` responses are cached after strict response validation.
+Failures, corrupt entries, and backend outages remain misses and never poison
+later requests. Cache identity includes the trimmed URL, explicit provider, and
+normalized ordered `skip_providers`, so control variants never collide. Same-key
+concurrent misses collapse to one provider race per process; Redis shares the
+stored result across replicas but does not provide distributed single-flight.
 
 Fetch provider secrets use provider-native names with no `OMNIFETCH_` prefix.
 Configure any subset; missing providers remain disabled.
