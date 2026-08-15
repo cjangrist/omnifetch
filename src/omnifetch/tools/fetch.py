@@ -2,12 +2,16 @@
 
 from __future__ import annotations
 
+import asyncio
+import hashlib
+import json
 import logging
 
 from fastmcp import Context, FastMCP
 from fastmcp.exceptions import ToolError
 from logdecorator.asyncio import async_log_on_end, async_log_on_start
 from mcp.types import ToolAnnotations
+from pydantic import ValidationError
 
 from omnifetch.fetch.engine.race import (
     AlternativeFetchResult,
@@ -33,6 +37,7 @@ from omnifetch.schemas import (
 _LOGGER = get_logger("tools.fetch")
 
 _TOOL_NAME = "web_fetch"
+_FETCH_CACHE_NAMESPACE = "omnifetch:fetch:v1"
 _TOOL_TITLE = "Web Fetch (multi-provider waterfall)"
 _TOOL_DESCRIPTION = (
     "Fetch clean markdown from a public URL through the multi-provider "
@@ -68,7 +73,183 @@ def _parse_valid_skip_providers(
             f"Valid: {', '.join(active_names)}",
             _TOOL_NAME,
         )
-    return valid
+    valid_names = set(valid)
+    return [name for name in active_names if name in valid_names]
+
+
+def _validate_provider_controls(
+    provider: str | None,
+    skip_providers: list[str],
+    active_names: list[str],
+) -> None:
+    """Reject invalid provider controls before consulting the cache."""
+    if provider is not None and skip_providers:
+        raise ProviderError(
+            ErrorType.INVALID_INPUT,
+            "provider and skip_providers are mutually exclusive",
+            "waterfall",
+        )
+    if provider is not None and provider not in active_names:
+        raise ProviderError(
+            ErrorType.INVALID_INPUT,
+            f"Unknown explicit provider: {provider}",
+            "waterfall",
+        )
+    skip_names = set(skip_providers)
+    eligible_names = [name for name in active_names if name not in skip_names]
+    if provider is None and not eligible_names:
+        skipped = ", ".join(skip_providers)
+        reason = (
+            f"all candidates skipped via skip_providers ({skipped})"
+            if skip_providers
+            else "no providers configured"
+        )
+        raise ProviderError(
+            ErrorType.INVALID_INPUT,
+            f"No fetch providers available - {reason}",
+            "waterfall",
+        )
+
+
+def _fetch_cache_key(
+    url: str,
+    provider: str | None,
+    skip_providers: list[str],
+) -> str:
+    """Return a versioned digest of the exact effective fetch request."""
+    identity = {
+        "provider": provider,
+        "skip_providers": skip_providers,
+        "url": url,
+    }
+    canonical = json.dumps(
+        identity,
+        ensure_ascii=False,
+        separators=(",", ":"),
+        sort_keys=True,
+    ).encode()
+    digest = hashlib.sha256(canonical).hexdigest()
+    return f"{_FETCH_CACHE_NAMESPACE}:{digest}"
+
+
+def _cache_key_reference(key: str) -> str:
+    """Return the safe digest prefix from a versioned fetch key."""
+    return key.rsplit(":", maxsplit=1)[-1][:12]
+
+
+async def _discard_invalid_cache_entry(engine: Engine, key: str) -> None:
+    """Best-effort delete one corrupt or incompatible fetch entry."""
+    try:
+        await engine.cache.delete(key)
+    except Exception as error:
+        _LOGGER.warning(
+            "Fetch cache cleanup failed for key %s (%s)",
+            _cache_key_reference(key),
+            type(error).__name__,
+        )
+
+
+async def _read_fetch_cache(
+    engine: Engine,
+    key: str,
+) -> FetchResponse | None:
+    """Return one strictly validated fetch response or a cache miss."""
+    key_reference = _cache_key_reference(key)
+    try:
+        cached = await engine.cache.get(key)
+    except Exception as error:
+        _LOGGER.warning(
+            "Fetch cache read failed for key %s (%s)",
+            key_reference,
+            type(error).__name__,
+        )
+        return None
+    if cached is None:
+        _LOGGER.debug("Fetch cache miss for key %s", key_reference)
+        return None
+    try:
+        response = FetchResponse.model_validate(cached)
+    except (TypeError, ValidationError) as error:
+        _LOGGER.warning(
+            "Fetch cache entry invalid for key %s (%s)",
+            key_reference,
+            type(error).__name__,
+        )
+        await _discard_invalid_cache_entry(engine, key)
+        return None
+    _LOGGER.debug("Fetch cache hit for key %s", key_reference)
+    return response
+
+
+async def _write_fetch_cache(
+    engine: Engine,
+    key: str,
+    response: FetchResponse,
+) -> None:
+    """Best-effort store one successful, validated fetch response."""
+    key_reference = _cache_key_reference(key)
+    try:
+        stored = await engine.cache.set(
+            key,
+            response.model_dump(mode="json"),
+            engine.fetch_cache_ttl_seconds,
+        )
+    except Exception as error:
+        _LOGGER.warning(
+            "Fetch cache write failed for key %s (%s)",
+            key_reference,
+            type(error).__name__,
+        )
+        return
+    _LOGGER.debug(
+        "Fetch cache write %s for key %s",
+        "stored" if stored else "skipped",
+        key_reference,
+    )
+
+
+def _claim_fetch_flight(
+    engine: Engine,
+    key: str,
+) -> tuple[bool, asyncio.Future[None]]:
+    """Return whether this caller leads the in-process fetch flight."""
+    existing = engine.fetch_flights.get(key)
+    if existing is not None:
+        return False, existing
+    completion = asyncio.get_running_loop().create_future()
+    engine.fetch_flights[key] = completion
+    return True, completion
+
+
+def _release_fetch_flight(
+    engine: Engine,
+    key: str,
+    completion: asyncio.Future[None],
+) -> None:
+    """Release one flight and wake every waiter after any leader outcome."""
+    if engine.fetch_flights.get(key) is completion:
+        del engine.fetch_flights[key]
+    if not completion.done():
+        completion.set_result(None)
+
+
+async def _fetch_and_store(
+    engine: Engine,
+    url: str,
+    provider: str | None,
+    skip_providers: list[str],
+    cache_key: str,
+) -> FetchResponse:
+    """Run one provider race and cache only its validated success response."""
+    race = await run_fetch_race(
+        engine.unified,
+        url,
+        provider=provider,
+        skip_providers=skip_providers,
+    )
+    response = _to_response(race)
+    await _write_fetch_cache(engine, cache_key, response)
+    return response
 
 
 def _failure_to_response(
@@ -123,18 +304,39 @@ async def execute_web_fetch(
     provider: str | None = None,
     skip_providers: str | list[str] | None = None,
 ) -> FetchResponse:
-    """Fetch a URL through the shared engine and return a flat response."""
+    """Return a cached success or fetch through the shared provider engine."""
+    normalized_url = url.strip()
+    active_names = engine.unified.active_names
     skip = _parse_valid_skip_providers(
         skip_providers,
-        engine.unified.active_names,
+        active_names,
     )
-    race = await run_fetch_race(
-        engine.unified,
-        url,
-        provider=provider,
-        skip_providers=skip,
-    )
-    return _to_response(race)
+    _validate_provider_controls(provider, skip, active_names)
+    cache_key = _fetch_cache_key(normalized_url, provider, skip)
+
+    while True:
+        cached = await _read_fetch_cache(engine, cache_key)
+        if cached is not None:
+            return cached
+        is_leader, completion = _claim_fetch_flight(engine, cache_key)
+        if is_leader:
+            break
+        _LOGGER.debug(
+            "Fetch cache miss coalesced for key %s",
+            _cache_key_reference(cache_key),
+        )
+        await asyncio.shield(completion)
+
+    try:
+        return await _fetch_and_store(
+            engine,
+            normalized_url,
+            provider,
+            skip,
+            cache_key,
+        )
+    finally:
+        _release_fetch_flight(engine, cache_key, completion)
 
 
 def register_web_fetch_tool(server: FastMCP, engine: Engine) -> None:
