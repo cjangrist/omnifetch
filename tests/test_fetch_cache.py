@@ -114,6 +114,11 @@ async def test_successful_fetch_is_written_then_reused(
         "run_fetch_race",
         _recording_race(calls),
     )
+    monkeypatch.setattr(
+        fetch_module,
+        "_cache_hit_duration_ms",
+        lambda _start_time: 3,
+    )
 
     with caplog.at_level(logging.DEBUG, logger="omnifetch.tools.fetch"):
         first = await execute_web_fetch(
@@ -125,7 +130,11 @@ async def test_successful_fetch_is_written_then_reused(
             "https://example.test/article",
         )
 
-    assert first == second
+    assert first.model_dump(exclude={"total_duration_ms"}) == second.model_dump(
+        exclude={"total_duration_ms"}
+    )
+    assert first.total_duration_ms == 7
+    assert second.total_duration_ms == 3
     assert calls == [("https://example.test/article", None, ())]
     assert any("Fetch cache miss" in message for message in caplog.messages)
     assert any(

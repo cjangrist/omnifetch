@@ -6,6 +6,7 @@ import asyncio
 import hashlib
 import json
 import logging
+import time
 
 from fastmcp import Context, FastMCP
 from fastmcp.exceptions import ToolError
@@ -135,6 +136,11 @@ def _fetch_cache_key(
 def _cache_key_reference(key: str) -> str:
     """Return the safe digest prefix from a versioned fetch key."""
     return key.rsplit(":", maxsplit=1)[-1][:12]
+
+
+def _cache_hit_duration_ms(start_time: float) -> int:
+    """Return current-request elapsed milliseconds for one cache hit."""
+    return round((time.monotonic() - start_time) * 1000)
 
 
 async def _discard_invalid_cache_entry(engine: Engine, key: str) -> None:
@@ -306,6 +312,7 @@ async def execute_web_fetch(
     skip_providers: str | list[str] | None = None,
 ) -> FetchResponse:
     """Return a cached success or fetch through the shared provider engine."""
+    request_start_time = time.monotonic()
     normalized_url = url.strip()
     active_names = engine.unified.active_names
     skip = _parse_valid_skip_providers(
@@ -318,7 +325,13 @@ async def execute_web_fetch(
     while True:
         cached = await _read_fetch_cache(engine, cache_key)
         if cached is not None:
-            return cached
+            return cached.model_copy(
+                update={
+                    "total_duration_ms": _cache_hit_duration_ms(
+                        request_start_time
+                    )
+                }
+            )
         is_leader, completion = _claim_fetch_flight(engine, cache_key)
         if is_leader:
             break
