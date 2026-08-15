@@ -9,7 +9,6 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import json
-import threading
 from collections.abc import AsyncIterator, Callable, Coroutine
 from importlib.metadata import version
 from typing import Any, cast
@@ -42,6 +41,7 @@ _HTTP_NOT_FOUND = 404
 _HTTP_RATE_LIMITED = 429
 _HTTP_BAD_GATEWAY = 502
 _MAX_FETCH_URL_LENGTH = 2000
+_ROLLBACK_TASKS: set[asyncio.Task[None]] = set()
 
 
 async def _close_owned_resources(
@@ -63,27 +63,32 @@ async def _close_owned_resources(
 def _run_rollback(
     cleanup: Callable[[], Coroutine[Any, Any, None]],
 ) -> None:
-    """Synchronously finish async cleanup on an exceptional factory path."""
-    cleanup_errors: list[BaseException] = []
-
-    def run_cleanup() -> None:
+    """Run cleanup now or schedule it on the active resource-owning loop."""
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
         try:
             asyncio.run(cleanup())
         except BaseException as error:
-            cleanup_errors.append(error)
-
-    try:
-        asyncio.get_running_loop()
-    except RuntimeError:
-        run_cleanup()
+            _LOGGER.warning(
+                "Resource rollback failed (%s)",
+                type(error).__name__,
+            )
     else:
-        cleanup_thread = threading.Thread(target=run_cleanup)
-        cleanup_thread.start()
-        cleanup_thread.join()
-    if cleanup_errors:
+        task = loop.create_task(cleanup())
+        _ROLLBACK_TASKS.add(task)
+        task.add_done_callback(_rollback_finished)
+
+
+def _rollback_finished(task: asyncio.Task[None]) -> None:
+    """Retire a scheduled rollback task and observe any cleanup failure."""
+    _ROLLBACK_TASKS.discard(task)
+    try:
+        task.result()
+    except BaseException as error:
         _LOGGER.warning(
             "Resource rollback failed (%s)",
-            type(cleanup_errors[0]).__name__,
+            type(error).__name__,
         )
 
 

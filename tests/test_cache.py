@@ -115,6 +115,38 @@ async def test_filesystem_round_trip_and_expiry(
     assert await backend.is_ready() is True
     clock[0] = 2003.0
     assert await backend.get("disk-key") is None
+    assert await backend.delete("missing-key") is True
+
+
+async def test_filesystem_readiness_probe_does_not_expire(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    clock = [3000.0]
+    monkeypatch.setattr(cachelib_file, "time", lambda: clock[0])
+    backend = build_cache_backend(
+        "disk",
+        disk_path=str(tmp_path / "cache"),
+        redis_url="",
+        max_entries=10,
+    )
+    original_get = cache_module._JSONFileSystemCache.get
+
+    def get_after_clock_jump(
+        cache: cache_module._JSONFileSystemCache,
+        key: str,
+    ) -> Any:
+        if key == "omnifetch:cache:readiness":
+            clock[0] += 3600
+        return original_get(cache, key)
+
+    monkeypatch.setattr(
+        cache_module._JSONFileSystemCache,
+        "get",
+        get_after_clock_jump,
+    )
+
+    assert await backend.is_ready() is True
 
 
 async def test_memory_cache_enforces_a_hard_entry_cap() -> None:
@@ -217,8 +249,9 @@ async def test_filesystem_delete_failure_is_not_reported_as_success(
     )
     assert await backend.set("key", {"value": 1}, 60)
     monkeypatch.setattr(
-        "cachelib.file.os.remove",
-        MagicMock(side_effect=OSError("read-only filesystem")),
+        cachelib_file.FileSystemCache,
+        "delete",
+        MagicMock(return_value=False),
     )
 
     assert await backend.delete("key") is False

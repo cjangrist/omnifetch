@@ -15,6 +15,7 @@ from starlette.testclient import TestClient
 
 import omnifetch.server as server_module
 import omnifetch.tools.fetch as fetch_module
+from omnifetch.cache import build_cache_backend
 from omnifetch.config import load_config
 from omnifetch.fetch.engine.race import (
     AlternativeFetchResult,
@@ -60,7 +61,17 @@ def _fake_tool_server(
     active_names: list[str],
 ) -> tuple[FastMCP, httpx.AsyncClient]:
     client = httpx.AsyncClient()
-    engine = Engine(unified=_FakeDispatcher(active_names), client=client)
+    cache = build_cache_backend(
+        "memory",
+        disk_path="",
+        redis_url="",
+        max_entries=10,
+    )
+    engine = Engine(
+        unified=_FakeDispatcher(active_names),
+        client=client,
+        cache=cache,
+    )
     server = FastMCP(
         name="test-web-fetch",
         strict_input_validation=True,

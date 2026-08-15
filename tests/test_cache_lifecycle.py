@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
 import httpx
@@ -285,11 +284,10 @@ async def test_server_lifespan_rejects_an_unready_owned_cache() -> None:
         cache=cache,
     )
     server = server_module.build_server(load_config(), engine=engine)
-    lifespan: Any = server._lifespan
 
     with pytest.raises(RuntimeError, match="readiness check failed"):
-        async with lifespan(server):
-            raise AssertionError("unready lifespan must not yield")
+        async with Client(FastMCPTransport(server)) as mcp_client:
+            await mcp_client.list_tools()
 
     cache.close.assert_awaited_once_with()
     assert client.is_closed is True
@@ -362,8 +360,51 @@ def test_build_engine_rolls_back_both_resources_when_provider_fails(
 async def test_build_server_rolls_back_in_a_running_event_loop(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    owning_loop = asyncio.get_running_loop()
     cache = MagicMock(spec=CacheBackend)
     cache.close = AsyncMock()
+
+    async def handle_request(_request: httpx.Request) -> httpx.Response:
+        assert asyncio.get_running_loop() is owning_loop
+        return httpx.Response(200)
+
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handle_request))
+    original_close = client.aclose
+    client_closed = asyncio.Event()
+
+    async def close_client() -> None:
+        assert asyncio.get_running_loop() is owning_loop
+        await original_close()
+        client_closed.set()
+
+    monkeypatch.setattr(client, "aclose", close_client)
+    engine = Engine(
+        unified=_FakeDispatcher([]),
+        client=client,
+        cache=cache,
+    )
+    monkeypatch.setattr(
+        server_module,
+        "register_tools",
+        MagicMock(side_effect=RuntimeError("tool registration failed")),
+    )
+    response = await client.get("https://example.test")
+    assert response.status_code == 200
+
+    with pytest.raises(RuntimeError, match="tool registration failed"):
+        server_module.build_server(load_config(), engine=engine)
+
+    await asyncio.wait_for(client_closed.wait(), timeout=1)
+    cache.close.assert_awaited_once_with()
+    assert client.is_closed is True
+
+
+async def test_scheduled_rollback_failure_is_observed(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    cache = MagicMock(spec=CacheBackend)
+    cache.close = AsyncMock(side_effect=OSError("cache close failed"))
     client = httpx.AsyncClient()
     engine = Engine(
         unified=_FakeDispatcher([]),
@@ -376,11 +417,16 @@ async def test_build_server_rolls_back_in_a_running_event_loop(
         MagicMock(side_effect=RuntimeError("tool registration failed")),
     )
 
-    with pytest.raises(RuntimeError, match="tool registration failed"):
+    with (
+        caplog.at_level(logging.WARNING, logger="omnifetch.server"),
+        pytest.raises(RuntimeError, match="tool registration failed"),
+    ):
         server_module.build_server(load_config(), engine=engine)
+    await asyncio.sleep(0)
+    await asyncio.sleep(0)
 
-    cache.close.assert_awaited_once_with()
     assert client.is_closed is True
+    assert "Resource rollback failed (OSError)" in caplog.messages
 
 
 def test_build_server_rolls_back_when_fastmcp_construction_fails(

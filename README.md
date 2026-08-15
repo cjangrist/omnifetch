@@ -152,6 +152,8 @@ pickle.
 Use each filesystem cache directory from one Omnifetch process only. Cachelib's
 filesystem metadata is protected from concurrent threads within that process,
 but it does not coordinate writers across processes or unrelated applications.
+Docker Compose persists the default disk path in its `omnifetch-cache` named
+volume so container recreation does not discard filesystem cache entries.
 
 This release establishes storage and lifecycle ownership only. It does not yet
 reuse fetch responses; `OMNIFETCH_FETCH_CACHE_TTL_SECONDS` becomes effective

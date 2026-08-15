@@ -7,32 +7,23 @@ from dataclasses import dataclass, field
 
 import httpx
 
-from omnifetch.cache import build_cache_backend, CacheBackend
-from omnifetch.config import (
-    DEFAULT_CACHE_MAX_ENTRIES,
-    DEFAULT_DISK_CACHE_PATH,
-    DEFAULT_FETCH_CACHE_TTL_SECONDS,
-)
+from omnifetch.cache import CacheBackend
+from omnifetch.config import DEFAULT_FETCH_CACHE_TTL_SECONDS
 from omnifetch.fetch.engine.race import FetchDispatcher
-
-
-def _default_cache() -> CacheBackend:
-    """Build the in-memory default used by directly constructed test engines."""
-    return build_cache_backend(
-        "memory",
-        disk_path=DEFAULT_DISK_CACHE_PATH,
-        redis_url="",
-        max_entries=DEFAULT_CACHE_MAX_ENTRIES,
-    )
 
 
 @dataclass(frozen=True, slots=True)
 class Engine:
-    """Shared fetch runtime dependencies owned by the server lifespan."""
+    """Shared fetch runtime dependencies owned by the server lifespan.
+
+    The client and cache are explicit so direct construction cannot silently
+    bypass configured backend selection. Both are owned unless their matching
+    ownership flags are false.
+    """
 
     unified: FetchDispatcher
     client: httpx.AsyncClient
-    cache: CacheBackend = field(default_factory=_default_cache)
+    cache: CacheBackend
     fetch_cache_ttl_seconds: int = DEFAULT_FETCH_CACHE_TTL_SECONDS
     owns_client: bool = True
     owns_cache: bool = True
