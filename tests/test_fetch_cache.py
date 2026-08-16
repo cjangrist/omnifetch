@@ -38,11 +38,12 @@ class _FakeDispatcher:
 def _race(
     url: str,
     provider: str = "tavily",
+    total_duration_ms: int = 7,
 ) -> FetchRaceResult:
     """Return one valid provider-race success for cache tests."""
     return FetchRaceResult(
         requested_url=url,
-        total_duration_ms=7,
+        total_duration_ms=total_duration_ms,
         provider_used=provider,
         providers_attempted=(provider,),
         providers_failed=(),
@@ -87,6 +88,7 @@ async def cache_engine() -> AsyncIterator[Engine]:
 
 def _recording_race(
     calls: list[tuple[str, str | None, tuple[str, ...]]],
+    total_duration_ms: int = 7,
 ) -> Callable[..., Awaitable[FetchRaceResult]]:
     """Return a fake race function that records effective request controls."""
 
@@ -98,7 +100,7 @@ def _recording_race(
         skip_providers: Iterable[str] = (),
     ) -> FetchRaceResult:
         calls.append((url, provider, tuple(skip_providers)))
-        return _race(url, provider or "tavily")
+        return _race(url, provider or "tavily", total_duration_ms)
 
     return run
 
@@ -112,12 +114,7 @@ async def test_successful_fetch_is_written_then_reused(
     monkeypatch.setattr(
         fetch_module,
         "run_fetch_race",
-        _recording_race(calls),
-    )
-    monkeypatch.setattr(
-        fetch_module,
-        "_cache_hit_duration_ms",
-        lambda _start_time: 3,
+        _recording_race(calls, total_duration_ms=60_000),
     )
 
     with caplog.at_level(logging.DEBUG, logger="omnifetch.tools.fetch"):
@@ -133,8 +130,8 @@ async def test_successful_fetch_is_written_then_reused(
     assert first.model_dump(exclude={"total_duration_ms"}) == second.model_dump(
         exclude={"total_duration_ms"}
     )
-    assert first.total_duration_ms == 7
-    assert second.total_duration_ms == 3
+    assert first.total_duration_ms == 60_000
+    assert 0 <= second.total_duration_ms < first.total_duration_ms
     assert calls == [("https://example.test/article", None, ())]
     assert any("Fetch cache miss" in message for message in caplog.messages)
     assert any(
@@ -155,6 +152,16 @@ def test_fetch_cache_keys_are_versioned_hashed_and_control_specific() -> None:
     assert url not in default
     assert "secret" not in default
     assert len({default, explicit, skipped}) == 3
+
+
+def test_fetch_cache_key_accepts_a_lone_surrogate() -> None:
+    url = "https://example.test/\ud800"
+
+    key = fetch_module._fetch_cache_key(url, None, [])
+
+    assert key == fetch_module._fetch_cache_key(url, None, [])
+    assert key.startswith("omnifetch:fetch:v1:")
+    assert url not in key
 
 
 async def test_provider_and_skip_variants_do_not_collide(
