@@ -159,8 +159,10 @@ Successful `web_fetch` responses are cached after strict response validation.
 Failures, corrupt entries, and backend outages remain misses and never poison
 later requests. Cache identity includes the trimmed URL, explicit provider, and
 normalized ordered `skip_providers`, so control variants never collide. Same-key
-concurrent misses collapse to one provider race per process; Redis shares the
-stored result across replicas but does not provide distributed single-flight.
+concurrent misses collapse to one provider race per process when that race
+succeeds. Failures remain uncached, and each waiting caller retries so a
+transient leader failure does not become a shared result. Redis shares stored
+results across replicas but does not provide distributed single-flight.
 
 Fetch provider secrets use provider-native names with no `OMNIFETCH_` prefix.
 Configure any subset; missing providers remain disabled.

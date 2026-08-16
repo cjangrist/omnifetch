@@ -125,7 +125,6 @@ def _fetch_cache_key(
     }
     canonical = json.dumps(
         identity,
-        ensure_ascii=False,
         separators=(",", ":"),
         sort_keys=True,
     ).encode()
@@ -141,6 +140,17 @@ def _cache_key_reference(key: str) -> str:
 def _cache_hit_duration_ms(start_time: float) -> int:
     """Return current-request elapsed milliseconds for one cache hit."""
     return round((time.monotonic() - start_time) * 1000)
+
+
+def _response_for_request(
+    response: FetchResponse,
+    start_time: float,
+) -> FetchResponse:
+    """Return a defensive response copy with caller-specific timing."""
+    return response.model_copy(
+        deep=True,
+        update={"total_duration_ms": _cache_hit_duration_ms(start_time)},
+    )
 
 
 async def _discard_invalid_cache_entry(engine: Engine, key: str) -> None:
@@ -325,13 +335,7 @@ async def execute_web_fetch(
     while True:
         cached = await _read_fetch_cache(engine, cache_key)
         if cached is not None:
-            return cached.model_copy(
-                update={
-                    "total_duration_ms": _cache_hit_duration_ms(
-                        request_start_time
-                    )
-                }
-            )
+            return _response_for_request(cached, request_start_time)
         is_leader, completion = _claim_fetch_flight(engine, cache_key)
         if is_leader:
             break
@@ -341,7 +345,7 @@ async def execute_web_fetch(
         )
         shared_response = await asyncio.shield(completion)
         if shared_response is not None:
-            return shared_response
+            return _response_for_request(shared_response, request_start_time)
 
     response: FetchResponse | None = None
     try:
