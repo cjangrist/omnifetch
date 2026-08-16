@@ -148,7 +148,8 @@ def _response_for_request(
 ) -> FetchResponse:
     """Return a defensive response copy with caller-specific timing."""
     return response.model_copy(
-        update={"total_duration_ms": _cache_hit_duration_ms(start_time)}
+        deep=True,
+        update={"total_duration_ms": _cache_hit_duration_ms(start_time)},
     )
 
 

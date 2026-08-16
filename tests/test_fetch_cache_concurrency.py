@@ -51,7 +51,7 @@ def _race(url: str) -> FetchRaceResult:
             title="Cached example",
             content="# Cached\n\n" + ("useful content " * 30),
             source_provider="tavily",
-            metadata={"provider": "tavily"},
+            metadata={"provider": {"name": "tavily"}},
         ),
     )
 
@@ -172,6 +172,14 @@ async def test_concurrent_identical_misses_run_one_provider_race(
     )
     assert first is not second
     assert 0 <= second.total_duration_ms < first.total_duration_ms
+    assert first.metadata is not None
+    assert second.metadata is not None
+    assert first.providers_attempted is not None
+    assert second.providers_attempted is not None
+    second.metadata["provider"]["name"] = "mutated"
+    second.providers_attempted.append("mutated")
+    assert first.metadata == {"provider": {"name": "tavily"}}
+    assert first.providers_attempted == ["tavily"]
     assert calls == 1
     assert cache_engine.fetch_flights == {}
     assert any("miss coalesced" in message for message in caplog.messages)
