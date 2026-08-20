@@ -29,9 +29,6 @@ class Engine:
     client: httpx.AsyncClient
     cache: CacheBackend
     fetch_cache_ttl_seconds: int = DEFAULT_FETCH_CACHE_TTL_SECONDS
-    volatile_fetch_cache_ttl_seconds: int = (
-        DEFAULT_VOLATILE_FETCH_CACHE_TTL_SECONDS
-    )
     fetch_flights: dict[
         str,
         asyncio.Future[FetchResponse | None],
@@ -43,6 +40,9 @@ class Engine:
     )
     owns_client: bool = True
     owns_cache: bool = True
+    volatile_fetch_cache_ttl_seconds: int = (
+        DEFAULT_VOLATILE_FETCH_CACHE_TTL_SECONDS
+    )
     _close_lock: asyncio.Lock = field(
         default_factory=asyncio.Lock,
         init=False,

@@ -7,6 +7,7 @@ as volatile and assert the TTL each one is actually written with.
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import AsyncIterator
 from unittest.mock import AsyncMock
 
@@ -18,6 +19,7 @@ from omnifetch.cache import build_cache_backend
 from omnifetch.fetch.engine.race import FetchRaceResult
 from omnifetch.fetch.engine.runtime import Engine
 from omnifetch.fetch.shared.types import FetchResult
+from omnifetch.schemas import FetchResponse
 from omnifetch.tools.fetch import execute_web_fetch, is_volatile_fetch_url
 
 _STABLE_TTL = 864_000
@@ -55,6 +57,11 @@ def _race(url: str) -> FetchRaceResult:
             metadata={"provider": "tavily"},
         ),
     )
+
+
+def _to_cached_response() -> object:
+    """Return the response shape a cache read hands back."""
+    return fetch_module._to_response(_race("https://cnn.com"))
 
 
 async def _race_ok(
@@ -116,6 +123,8 @@ def test_homepage_urls_are_volatile(url: str) -> None:
 @pytest.mark.parametrize(
     "url",
     [
+        "http://[::1",
+        "https://[abc",
         "https://cnn.com/2026/08/20/politics/story",
         "https://cnn.com/politics",
         "https://bbc.com/news",
@@ -173,7 +182,7 @@ async def test_volatile_ttl_never_exceeds_the_stable_ttl(
     assert setter.await_args.args[2] == 60
 
 
-async def test_homepage_is_still_cached_and_coalesced(
+async def test_homepage_is_reused_within_the_volatile_window(
     ttl_engine: Engine,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -196,3 +205,116 @@ async def test_homepage_is_still_cached_and_coalesced(
 
     assert races == ["https://cnn.com"]
     assert first.content == second.content
+
+
+async def test_concurrent_homepage_requests_join_one_flight(
+    ttl_engine: Engine,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A second caller must join the in-flight fetch, not start its own."""
+    races: list[str] = []
+    leader_started = asyncio.Event()
+    release_leader = asyncio.Event()
+
+    async def blocking_race(
+        _dispatcher: object,
+        url: str,
+        *,
+        provider: str | None = None,
+        skip_providers: object = (),
+    ) -> FetchRaceResult:
+        races.append(url)
+        leader_started.set()
+        await release_leader.wait()
+        return _race(url)
+
+    claims: list[bool] = []
+    original_claim = fetch_module._claim_fetch_flight
+
+    def recording_claim(
+        engine: Engine, key: str
+    ) -> tuple[bool, asyncio.Future[FetchResponse | None]]:
+        is_leader, completion = original_claim(engine, key)
+        claims.append(is_leader)
+        return is_leader, completion
+
+    monkeypatch.setattr(fetch_module, "run_fetch_race", blocking_race)
+    monkeypatch.setattr(fetch_module, "_claim_fetch_flight", recording_claim)
+
+    leader = asyncio.create_task(
+        execute_web_fetch(ttl_engine, "https://cnn.com")
+    )
+    async with asyncio.timeout(1):
+        await leader_started.wait()
+
+    follower = asyncio.create_task(
+        execute_web_fetch(ttl_engine, "https://cnn.com")
+    )
+    async with asyncio.timeout(1):
+        while len(claims) < 2:
+            await asyncio.sleep(0)
+
+    assert claims == [True, False]
+    assert not follower.done()
+
+    release_leader.set()
+    async with asyncio.timeout(1):
+        first, second = await asyncio.gather(leader, follower)
+
+    assert races == ["https://cnn.com"]
+    assert first.content == second.content
+    assert ttl_engine.fetch_flights == {}
+
+
+async def test_leader_rereads_cache_before_paying_a_provider(
+    ttl_engine: Engine,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A leader whose miss went stale during the read must not refetch."""
+    races: list[str] = []
+    reads = 0
+
+    async def counting_race(
+        _dispatcher: object,
+        url: str,
+        *,
+        provider: str | None = None,
+        skip_providers: object = (),
+    ) -> FetchRaceResult:
+        races.append(url)
+        return _race(url)
+
+    async def settling_read(engine: Engine, key: str) -> object:
+        nonlocal reads
+        reads += 1
+        if reads == 1:
+            return None
+        return _to_cached_response()
+
+    monkeypatch.setattr(fetch_module, "run_fetch_race", counting_race)
+    monkeypatch.setattr(fetch_module, "_read_fetch_cache", settling_read)
+
+    response = await execute_web_fetch(ttl_engine, "https://cnn.com")
+
+    assert races == []
+    assert reads == 2
+    assert response.source_provider == "tavily"
+    assert ttl_engine.fetch_flights == {}
+
+
+async def test_unparseable_url_never_raises_after_a_paid_fetch(
+    ttl_engine: Engine,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A malformed authority must not turn a paid success into an error."""
+    monkeypatch.setattr(fetch_module, "run_fetch_race", _race_ok)
+    setter = AsyncMock(return_value=True)
+    monkeypatch.setattr(ttl_engine.cache, "set", setter)
+
+    assert is_volatile_fetch_url("http://[::1") is False
+
+    response = await execute_web_fetch(ttl_engine, "http://[::1")
+
+    assert response.source_provider == "tavily"
+    assert setter.await_args is not None
+    assert setter.await_args.args[2] == _STABLE_TTL

@@ -330,7 +330,7 @@ async def test_corrupt_entry_and_backend_errors_fail_open(
             )
         assert response.source_provider == "tavily"
         assert len(calls) == 1
-        cache.delete.assert_awaited_once()
+        assert cache.delete.await_count == 2
         cache.set.assert_awaited_once()
         assert any("entry invalid" in message for message in caplog.messages)
         assert any("cleanup failed" in message for message in caplog.messages)

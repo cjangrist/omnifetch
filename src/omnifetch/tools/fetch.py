@@ -151,8 +151,19 @@ def is_volatile_fetch_url(url: str) -> bool:
     known news domains. A list needs maintaining, silently misses every site
     absent from it, and still cannot tell a homepage from an article on a
     domain it does recognise. An empty path is a homepage everywhere.
+
+    The classification is total. ``urlsplit`` raises on a malformed authority
+    such as ``http://[::1``, and this runs after a provider has already been
+    paid, so an unparseable URL must not turn a fetch that succeeded into an
+    exception. It is reported as non-volatile: this predicate claims a
+    homepage only when it can prove one, and the ordinary lifetime is the
+    default everything else already gets.
     """
-    return urlsplit(url).path in _VOLATILE_URL_PATHS
+    try:
+        path = urlsplit(url).path
+    except ValueError:
+        return False
+    return path in _VOLATILE_URL_PATHS
 
 
 def _fetch_cache_ttl_seconds(engine: Engine, url: str) -> int:
@@ -360,7 +371,15 @@ async def execute_web_fetch(
     provider: str | None = None,
     skip_providers: str | list[str] | None = None,
 ) -> FetchResponse:
-    """Return a cached success or fetch through the shared provider engine."""
+    """Return a cached success or fetch through the shared provider engine.
+
+    Leadership is confirmed with a second cache read before any provider is
+    paid. The first read awaits the backend, and a leader that finishes during
+    that await leaves this caller holding a miss that is already stale: it
+    would claim the now-free flight and buy a page the cache is holding. The
+    re-read closes that window, so a duplicate fetch needs the entry to be
+    genuinely absent at the moment leadership is taken.
+    """
     request_start_time = time.monotonic()
     normalized_url = url.strip()
     active_names = engine.unified.active_names
@@ -388,6 +407,9 @@ async def execute_web_fetch(
 
     response: FetchResponse | None = None
     try:
+        settled = await _read_fetch_cache(engine, cache_key)
+        if settled is not None:
+            return _response_for_request(settled, request_start_time)
         response = await _fetch_and_store(
             engine,
             normalized_url,

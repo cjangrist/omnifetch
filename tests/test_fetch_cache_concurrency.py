@@ -228,7 +228,7 @@ async def test_waiters_reuse_response_when_cache_write_does_not_persist(
         assert first is not second
         assert 0 <= second.total_duration_ms < first.total_duration_ms
         assert calls == 1
-        assert cache.get.await_count == 2
+        assert cache.get.await_count == 3
         cache.set.assert_awaited_once()
         assert engine.fetch_flights == {}
     finally:
