@@ -8,7 +8,10 @@ from dataclasses import dataclass, field
 import httpx
 
 from omnifetch.cache import CacheBackend
-from omnifetch.config import DEFAULT_FETCH_CACHE_TTL_SECONDS
+from omnifetch.config import (
+    DEFAULT_FETCH_CACHE_TTL_SECONDS,
+    DEFAULT_VOLATILE_FETCH_CACHE_TTL_SECONDS,
+)
 from omnifetch.fetch.engine.race import FetchDispatcher
 from omnifetch.schemas import FetchResponse
 
@@ -37,6 +40,9 @@ class Engine:
     )
     owns_client: bool = True
     owns_cache: bool = True
+    volatile_fetch_cache_ttl_seconds: int = (
+        DEFAULT_VOLATILE_FETCH_CACHE_TTL_SECONDS
+    )
     _close_lock: asyncio.Lock = field(
         default_factory=asyncio.Lock,
         init=False,
