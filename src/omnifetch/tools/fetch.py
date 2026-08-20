@@ -7,6 +7,7 @@ import hashlib
 import json
 import logging
 import time
+from urllib.parse import urlsplit
 
 from fastmcp import Context, FastMCP
 from fastmcp.exceptions import ToolError
@@ -39,6 +40,7 @@ _LOGGER = get_logger("tools.fetch")
 
 _TOOL_NAME = "web_fetch"
 _FETCH_CACHE_NAMESPACE = "omnifetch:fetch:v1"
+_VOLATILE_URL_PATHS = frozenset({"", "/"})
 _TOOL_TITLE = "Web Fetch (multi-provider waterfall)"
 _TOOL_DESCRIPTION = (
     "Fetch clean markdown from a public URL through the multi-provider "
@@ -137,6 +139,37 @@ def _cache_key_reference(key: str) -> str:
     return key.rsplit(":", maxsplit=1)[-1][:12]
 
 
+def is_volatile_fetch_url(url: str) -> bool:
+    """Report whether a URL is a site homepage rather than a stable page.
+
+    A homepage is a rolling index. The masthead of a news site is rewritten
+    many times an hour while an article underneath it never changes again, so
+    one lifetime cannot serve both: it either hands back a stale front page or
+    throws away an article that was still perfectly reusable.
+
+    The test is structural -- an empty or root path -- rather than a list of
+    known news domains. A list needs maintaining, silently misses every site
+    absent from it, and still cannot tell a homepage from an article on a
+    domain it does recognise. An empty path is a homepage everywhere.
+    """
+    return urlsplit(url).path in _VOLATILE_URL_PATHS
+
+
+def _fetch_cache_ttl_seconds(engine: Engine, url: str) -> int:
+    """Return how long this URL's fetched content may be reused.
+
+    A volatile URL is never allowed to outlive an ordinary one: an operator
+    who shortens the main TTL below the volatile TTL means everything to be
+    fresher, not homepages to become the stalest entries in the cache.
+    """
+    if not is_volatile_fetch_url(url):
+        return engine.fetch_cache_ttl_seconds
+    return min(
+        engine.volatile_fetch_cache_ttl_seconds,
+        engine.fetch_cache_ttl_seconds,
+    )
+
+
 def _cache_hit_duration_ms(start_time: float) -> int:
     """Return current-request elapsed milliseconds for one cache hit."""
     return round((time.monotonic() - start_time) * 1000)
@@ -201,6 +234,7 @@ async def _write_fetch_cache(
     engine: Engine,
     key: str,
     response: FetchResponse,
+    ttl_seconds: int,
 ) -> None:
     """Best-effort store one successful, validated fetch response."""
     key_reference = _cache_key_reference(key)
@@ -208,7 +242,7 @@ async def _write_fetch_cache(
         stored = await engine.cache.set(
             key,
             response.model_dump(mode="json"),
-            engine.fetch_cache_ttl_seconds,
+            ttl_seconds,
         )
     except Exception as error:
         _LOGGER.warning(
@@ -265,7 +299,12 @@ async def _fetch_and_store(
         skip_providers=skip_providers,
     )
     response = _to_response(race)
-    await _write_fetch_cache(engine, cache_key, response)
+    await _write_fetch_cache(
+        engine,
+        cache_key,
+        response,
+        _fetch_cache_ttl_seconds(engine, url),
+    )
     return response
 
 

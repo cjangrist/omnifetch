@@ -37,6 +37,7 @@ def test_server_settings_have_explicit_environment_aliases() -> None:
         "OMNIFETCH_DISK_CACHE_PATH",
         "OMNIFETCH_CACHE_MAX_ENTRIES",
         "OMNIFETCH_FETCH_CACHE_TTL_SECONDS",
+        "OMNIFETCH_VOLATILE_FETCH_CACHE_TTL_SECONDS",
         "OMNIFETCH_HTTP_LIMIT_PER_HOST",
         "OMNIFETCH_HTTP_TRANSIENT_RETRIES",
         "OMNIFETCH_UVLOOP",

@@ -155,6 +155,9 @@ def build_engine(
             client=resolved_client,
             cache=resolved_cache,
             fetch_cache_ttl_seconds=config.server.fetch_cache_ttl_seconds,
+            volatile_fetch_cache_ttl_seconds=(
+                config.server.volatile_fetch_cache_ttl_seconds
+            ),
             owns_client=owns_client,
             owns_cache=owns_cache,
         )

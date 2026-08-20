@@ -24,6 +24,7 @@ UvloopModeName = Literal["auto", "off", "on"]
 DEFAULT_CACHE_MAX_ENTRIES = 10000
 DEFAULT_DISK_CACHE_PATH = ".cache/omnifetch"
 DEFAULT_FETCH_CACHE_TTL_SECONDS = 86400
+DEFAULT_VOLATILE_FETCH_CACHE_TTL_SECONDS = 300
 
 
 class ServerSettings(BaseSettings):
@@ -67,6 +68,11 @@ class ServerSettings(BaseSettings):
         default=DEFAULT_FETCH_CACHE_TTL_SECONDS,
         ge=1,
         validation_alias="OMNIFETCH_FETCH_CACHE_TTL_SECONDS",
+    )
+    volatile_fetch_cache_ttl_seconds: int = Field(
+        default=DEFAULT_VOLATILE_FETCH_CACHE_TTL_SECONDS,
+        ge=1,
+        validation_alias="OMNIFETCH_VOLATILE_FETCH_CACHE_TTL_SECONDS",
     )
     http_limit_per_host: int = Field(
         default=20, ge=1, validation_alias="OMNIFETCH_HTTP_LIMIT_PER_HOST"
