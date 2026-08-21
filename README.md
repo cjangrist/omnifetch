@@ -128,6 +128,11 @@ precedence.
 | `OMNIFETCH_CACHE_MAX_ENTRIES` | `10000` | Maximum entries retained by memory/filesystem storage |
 | `OMNIFETCH_FETCH_CACHE_TTL_SECONDS` | `86400` | Successful fetch-response TTL |
 | `OMNIFETCH_VOLATILE_FETCH_CACHE_TTL_SECONDS` | `300` | Homepage TTL; capped by the row above |
+
+A composing server can pass `canonicalize_cache_url` to `build_engine` to
+decide which URL spellings share one cache entry -- folding a trailing slash
+or a default port, for instance. It defaults to identity, affects the cache
+key only, and never changes the URL a provider is asked for.
 | `OMNIFETCH_HTTP_LIMIT_PER_HOST` | `20` | Per-host async HTTP concurrency cap |
 | `OMNIFETCH_HTTP_TRANSIENT_RETRIES` | `0` | Transient fetch HTTP retries before provider failover |
 | `OMNIFETCH_UVLOOP` | `auto` | `auto`/`on` installs uvloop; `off` keeps the default asyncio loop |

@@ -139,6 +139,26 @@ def _cache_key_reference(key: str) -> str:
     return key.rsplit(":", maxsplit=1)[-1][:12]
 
 
+def _cache_identity_url(engine: Engine, url: str) -> str:
+    """Return the URL spelling two requests must share to be one entry.
+
+    The canonicalizer is supplied by whoever built the engine, so it is
+    treated as foreign code on a paying path: anything it raises falls back to
+    the URL as given rather than turning a fetch into an error, and an empty
+    result is refused because it would collapse every distinct URL onto one
+    key. A caller that cannot canonicalize simply gets the previous behaviour.
+    """
+    try:
+        canonical = engine.canonicalize_cache_url(url)
+    except Exception as error:
+        _LOGGER.warning(
+            "Fetch cache URL canonicalization failed (%s)",
+            type(error).__name__,
+        )
+        return url
+    return canonical or url
+
+
 def is_volatile_fetch_url(url: str) -> bool:
     """Report whether a URL is a site homepage rather than a stable page.
 
@@ -388,7 +408,9 @@ async def execute_web_fetch(
         active_names,
     )
     _validate_provider_controls(provider, skip, active_names)
-    cache_key = _fetch_cache_key(normalized_url, provider, skip)
+    cache_key = _fetch_cache_key(
+        _cache_identity_url(engine, normalized_url), provider, skip
+    )
 
     while True:
         cached = await _read_fetch_cache(engine, cache_key)
