@@ -17,8 +17,12 @@ from omnifetch.fetch.engine.race import FetchDispatcher
 from omnifetch.schemas import FetchResponse
 
 
-def _same_url(url: str) -> str:
-    """Return the URL unchanged, the default cache identity."""
+def same_url(url: str) -> str:
+    """Return the URL unchanged.
+
+    The default cache identity, exported so a composing server can wrap or
+    fall back to it explicitly rather than reaching for a private name.
+    """
     return url
 
 
@@ -57,7 +61,7 @@ class Engine:
     volatile_fetch_cache_ttl_seconds: int = (
         DEFAULT_VOLATILE_FETCH_CACHE_TTL_SECONDS
     )
-    canonicalize_cache_url: Callable[[str], str] = _same_url
+    canonicalize_cache_url: Callable[[str], str] = same_url
     _close_lock: asyncio.Lock = field(
         default_factory=asyncio.Lock,
         init=False,

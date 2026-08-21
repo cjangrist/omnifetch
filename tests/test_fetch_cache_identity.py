@@ -8,15 +8,18 @@ canonicalizer, and that a misbehaving one can never cost a paid fetch.
 from __future__ import annotations
 
 from collections.abc import AsyncIterator, Callable
+from typing import cast
 
 import httpx
 import pytest
 
 import omnifetch.tools.fetch as fetch_module
 from omnifetch.cache import build_cache_backend, CacheBackend
+from omnifetch.config import load_config
 from omnifetch.fetch.engine.race import FetchRaceResult
-from omnifetch.fetch.engine.runtime import Engine
+from omnifetch.fetch.engine.runtime import Engine, same_url
 from omnifetch.fetch.shared.types import FetchResult
+from omnifetch.server import build_engine
 from omnifetch.tools.fetch import execute_web_fetch
 
 RACES: list[str] = []
@@ -176,3 +179,47 @@ async def test_empty_canonicalization_is_refused() -> None:
         await engine.aclose()
 
     assert RACES == ["https://example.com/a", "https://example.com/b"]
+
+
+async def test_non_string_canonicalization_is_refused() -> None:
+    """A URL object would reach json.dumps and raise on a paying path."""
+
+    def as_url_object(url: str) -> str:
+        return cast(str, httpx.URL(url))
+
+    engine = _engine(as_url_object)
+    try:
+        await execute_web_fetch(engine, "https://example.com/c")
+        await execute_web_fetch(engine, "https://example.com/d")
+    finally:
+        await engine.aclose()
+
+    assert RACES == ["https://example.com/c", "https://example.com/d"]
+
+
+def test_same_url_is_the_exported_default() -> None:
+    assert same_url("https://example.com/x/") == "https://example.com/x/"
+    assert Engine.__dataclass_fields__["canonicalize_cache_url"].default is (
+        same_url
+    )
+
+
+def test_build_engine_passes_the_canonicalizer_through() -> None:
+    engine = build_engine(
+        load_config(),
+        client=httpx.AsyncClient(),
+        cache=_memory_cache(),
+        canonicalize_cache_url=_drop_trailing_slash,
+    )
+
+    assert engine.canonicalize_cache_url is _drop_trailing_slash
+
+
+def test_build_engine_defaults_to_identity() -> None:
+    engine = build_engine(
+        load_config(),
+        client=httpx.AsyncClient(),
+        cache=_memory_cache(),
+    )
+
+    assert engine.canonicalize_cache_url is same_url

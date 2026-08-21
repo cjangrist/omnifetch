@@ -143,20 +143,25 @@ def _cache_identity_url(engine: Engine, url: str) -> str:
     """Return the URL spelling two requests must share to be one entry.
 
     The canonicalizer is supplied by whoever built the engine, so it is
-    treated as foreign code on a paying path: anything it raises falls back to
-    the URL as given rather than turning a fetch into an error, and an empty
-    result is refused because it would collapse every distinct URL onto one
-    key. A caller that cannot canonicalize simply gets the previous behaviour.
+    treated as foreign code on a paying path. Anything it raises falls back to
+    the URL as given rather than turning a fetch into an error; an empty result
+    is refused because it would collapse every distinct URL onto one key; and a
+    non-string is refused because the annotation is only a promise -- a real
+    canonicalizer often works in ``httpx.URL`` or ``yarl.URL``, and returning
+    one would reach ``json.dumps`` and raise on the very path this function
+    exists to keep safe.
     """
     try:
-        canonical = engine.canonicalize_cache_url(url)
+        canonical: object = engine.canonicalize_cache_url(url)
     except Exception as error:
         _LOGGER.warning(
             "Fetch cache URL canonicalization failed (%s)",
             type(error).__name__,
         )
         return url
-    return canonical or url
+    if isinstance(canonical, str) and canonical:
+        return canonical
+    return url
 
 
 def is_volatile_fetch_url(url: str) -> bool:

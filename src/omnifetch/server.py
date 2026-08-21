@@ -20,7 +20,7 @@ from starlette.responses import JSONResponse, Response
 
 from omnifetch.cache import build_cache_backend, CacheBackend
 from omnifetch.config import AppConfig, load_config
-from omnifetch.fetch.engine.runtime import Engine
+from omnifetch.fetch.engine.runtime import Engine, same_url
 from omnifetch.fetch.providers.registry import UnifiedFetchProvider
 from omnifetch.fetch.shared.types import ErrorType, ProviderError
 from omnifetch.logging import get_logger
@@ -116,6 +116,7 @@ def build_engine(
     config: AppConfig,
     client: httpx.AsyncClient | None = None,
     cache: CacheBackend | None = None,
+    canonicalize_cache_url: Callable[[str], str] = same_url,
 ) -> Engine:
     """Build the shared fetch runtime for one FastMCP server instance.
 
@@ -158,6 +159,7 @@ def build_engine(
             volatile_fetch_cache_ttl_seconds=(
                 config.server.volatile_fetch_cache_ttl_seconds
             ),
+            canonicalize_cache_url=canonicalize_cache_url,
             owns_client=owns_client,
             owns_cache=owns_cache,
         )
