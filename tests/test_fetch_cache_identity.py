@@ -181,7 +181,7 @@ async def test_empty_canonicalization_is_refused(
         await engine.aclose()
 
     assert RACES == ["https://example.com/a", "https://example.com/b"]
-    assert "rejected a empty result" in caplog.text
+    assert "rejected an empty result" in caplog.text
 
 
 async def test_non_string_canonicalization_is_refused(
