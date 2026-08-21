@@ -181,7 +181,7 @@ async def test_empty_canonicalization_is_refused(
         await engine.aclose()
 
     assert RACES == ["https://example.com/a", "https://example.com/b"]
-    assert "rejected an empty result" in caplog.text
+    assert "rejected (empty result)" in caplog.text
 
 
 async def test_non_string_canonicalization_is_refused(
@@ -200,7 +200,25 @@ async def test_non_string_canonicalization_is_refused(
         await engine.aclose()
 
     assert RACES == ["https://example.com/c", "https://example.com/d"]
-    assert "rejected a URL result" in caplog.text
+    assert "rejected (result of type URL)" in caplog.text
+
+
+async def test_arbitrary_rejected_type_is_named_neutrally(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Any type reports correctly, not just the URL objects we expected."""
+
+    def as_integer(url: str) -> str:
+        return cast(str, 7)
+
+    engine = _engine(as_integer)
+    try:
+        await execute_web_fetch(engine, "https://example.com/e")
+    finally:
+        await engine.aclose()
+
+    assert RACES == ["https://example.com/e"]
+    assert "rejected (result of type int)" in caplog.text
 
 
 def test_same_url_is_the_exported_default() -> None:

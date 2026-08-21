@@ -166,14 +166,12 @@ def _cache_identity_url(engine: Engine, url: str) -> str:
         return url
     if isinstance(canonical, str) and canonical:
         return canonical
-    rejected = (
-        "an empty"
+    reason = (
+        "empty result"
         if isinstance(canonical, str)
-        else f"a {type(canonical).__name__}"
+        else f"result of type {type(canonical).__name__}"
     )
-    _LOGGER.warning(
-        "Fetch cache URL canonicalization rejected %s result", rejected
-    )
+    _LOGGER.warning("Fetch cache URL canonicalization rejected (%s)", reason)
     return url
 
 
