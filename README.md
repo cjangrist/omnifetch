@@ -138,6 +138,12 @@ precedence.
 | `OTEL_EXPORTER_OTLP_PROTOCOL` | `http/protobuf` | `http/protobuf` or `grpc` |
 | `OTEL_SDK_DISABLED` | `false` | Force-disable the SDK |
 
+A composing server can pass `canonicalize_cache_url=` to `build_engine`
+(or to `Engine` directly) to decide which URL spellings share one cache
+entry -- folding a trailing slash or a default port, for instance. It
+defaults to identity, affects the cache key only, and never changes the
+URL a provider is asked for.
+
 ### Cache storage
 
 Omnifetch constructs one

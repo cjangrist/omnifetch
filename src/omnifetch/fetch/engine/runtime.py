@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Callable
 from dataclasses import dataclass, field
 
 import httpx
@@ -16,6 +17,15 @@ from omnifetch.fetch.engine.race import FetchDispatcher
 from omnifetch.schemas import FetchResponse
 
 
+def same_url(url: str) -> str:
+    """Return the URL unchanged.
+
+    The default cache identity, exported so a composing server can wrap or
+    fall back to it explicitly rather than reaching for a private name.
+    """
+    return url
+
+
 @dataclass(frozen=True, slots=True)
 class Engine:
     """Shared fetch runtime dependencies owned by the server lifespan.
@@ -23,6 +33,14 @@ class Engine:
     The client and cache are explicit so direct construction cannot silently
     bypass configured backend selection. Both are owned unless their matching
     ownership flags are false.
+
+    ``canonicalize_cache_url`` decides which URL spellings share one cache
+    entry. It defaults to identity, so a standalone server keeps hashing the
+    URL exactly as asked. A composing server that already has a canonical form
+    -- one that folds a trailing slash, a default port, or a host's casing --
+    injects it here so both layers agree on what "the same page" means instead
+    of paying twice for it. It affects the key only; the URL handed to a
+    provider is still the one the caller asked for.
     """
 
     unified: FetchDispatcher
@@ -43,6 +61,7 @@ class Engine:
     volatile_fetch_cache_ttl_seconds: int = (
         DEFAULT_VOLATILE_FETCH_CACHE_TTL_SECONDS
     )
+    canonicalize_cache_url: Callable[[str], str] = same_url
     _close_lock: asyncio.Lock = field(
         default_factory=asyncio.Lock,
         init=False,
