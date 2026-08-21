@@ -170,7 +170,9 @@ async def test_raising_canonicalizer_falls_back_to_the_url(
     assert "canonicalization failed (ValueError)" in caplog.text
 
 
-async def test_empty_canonicalization_is_refused() -> None:
+async def test_empty_canonicalization_is_refused(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
     engine = _engine(lambda url: "")
     try:
         await execute_web_fetch(engine, "https://example.com/a")
@@ -179,9 +181,12 @@ async def test_empty_canonicalization_is_refused() -> None:
         await engine.aclose()
 
     assert RACES == ["https://example.com/a", "https://example.com/b"]
+    assert "rejected a empty result" in caplog.text
 
 
-async def test_non_string_canonicalization_is_refused() -> None:
+async def test_non_string_canonicalization_is_refused(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
     """A URL object would reach json.dumps and raise on a paying path."""
 
     def as_url_object(url: str) -> str:
@@ -195,6 +200,7 @@ async def test_non_string_canonicalization_is_refused() -> None:
         await engine.aclose()
 
     assert RACES == ["https://example.com/c", "https://example.com/d"]
+    assert "rejected a URL result" in caplog.text
 
 
 def test_same_url_is_the_exported_default() -> None:
@@ -204,22 +210,28 @@ def test_same_url_is_the_exported_default() -> None:
     )
 
 
-def test_build_engine_passes_the_canonicalizer_through() -> None:
-    engine = build_engine(
-        load_config(),
-        client=httpx.AsyncClient(),
-        cache=_memory_cache(),
-        canonicalize_cache_url=_drop_trailing_slash,
-    )
+async def test_build_engine_passes_the_canonicalizer_through() -> None:
+    client = httpx.AsyncClient()
+    try:
+        engine = build_engine(
+            load_config(),
+            client=client,
+            cache=_memory_cache(),
+            canonicalize_cache_url=_drop_trailing_slash,
+        )
+        assert engine.canonicalize_cache_url is _drop_trailing_slash
+    finally:
+        await client.aclose()
 
-    assert engine.canonicalize_cache_url is _drop_trailing_slash
 
-
-def test_build_engine_defaults_to_identity() -> None:
-    engine = build_engine(
-        load_config(),
-        client=httpx.AsyncClient(),
-        cache=_memory_cache(),
-    )
-
-    assert engine.canonicalize_cache_url is same_url
+async def test_build_engine_defaults_to_identity() -> None:
+    client = httpx.AsyncClient()
+    try:
+        engine = build_engine(
+            load_config(),
+            client=client,
+            cache=_memory_cache(),
+        )
+        assert engine.canonicalize_cache_url is same_url
+    finally:
+        await client.aclose()

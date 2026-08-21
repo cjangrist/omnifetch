@@ -150,6 +150,11 @@ def _cache_identity_url(engine: Engine, url: str) -> str:
     canonicalizer often works in ``httpx.URL`` or ``yarl.URL``, and returning
     one would reach ``json.dumps`` and raise on the very path this function
     exists to keep safe.
+
+    Every rejection is logged. Falling back silently would leave an operator
+    paying for duplicate fetches with nothing to explain why the canonicalizer
+    they configured appears to do nothing. The reason and the result's type are
+    bounded values; the result itself is never logged.
     """
     try:
         canonical: object = engine.canonicalize_cache_url(url)
@@ -161,6 +166,10 @@ def _cache_identity_url(engine: Engine, url: str) -> str:
         return url
     if isinstance(canonical, str) and canonical:
         return canonical
+    _LOGGER.warning(
+        "Fetch cache URL canonicalization rejected a %s result",
+        "empty" if isinstance(canonical, str) else type(canonical).__name__,
+    )
     return url
 
 
