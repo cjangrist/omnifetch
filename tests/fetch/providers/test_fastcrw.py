@@ -185,12 +185,13 @@ async def test_fastcrw_discards_the_body_returned_with_a_missing_target() -> (
     the URL it asked for, so the flag is checked first.
     """
     missing_url = "https://example.test/definitely-missing"
+    other_page = "# Some Other Page\n\n" + ("body " * 60)
     with respx.mock(assert_all_called=True) as router:
         router.post(_SCRAPE_URL).respond(
             json={
                 "success": False,
                 "data": {
-                    "markdown": "# Some Other Page\n\n" + ("body " * 60),
+                    "markdown": other_page,
                     "metadata": {"statusCode": 404},
                 },
                 "error": "Target returned 404 Not Found",
@@ -202,9 +203,64 @@ async def test_fastcrw_discards_the_body_returned_with_a_missing_target() -> (
                 await _provider(client).fetch_url(missing_url)
 
     assert error_info.value.error_type is ErrorType.NOT_FOUND
+    assert "Some Other Page" not in str(error_info.value)
+
+
+async def test_fastcrw_reads_a_missing_target_out_of_the_error_message() -> (
+    None
+):
+    """Not every miss carries a status, so the message is still consulted."""
+    with respx.mock(assert_all_called=True) as router:
+        router.post(_SCRAPE_URL).respond(
+            json={
+                "success": False,
+                "error": "Target returned 404 Not Found",
+                "errorCode": "http_error",
+            }
+        )
+        async with httpx.AsyncClient() as client:
+            with pytest.raises(ProviderError) as error_info:
+                await _provider(client).fetch_url(
+                    "https://example.test/definitely-missing"
+                )
+
+    assert error_info.value.error_type is ErrorType.NOT_FOUND
     assert str(error_info.value) == (
         "fastCRW scrape failed: Target returned 404 Not Found"
     )
+
+
+async def test_fastcrw_trusts_the_status_over_an_unrelated_error_string() -> (
+    None
+):
+    """A real 404 arrived labelled ``lightpanda_budget_truncated``.
+
+    Fetching a missing page under postgresql.org through the live API produced
+    ``success: false`` with that renderer-internal string as ``error`` and
+    ``statusCode: 404`` in the metadata. The message says nothing about the
+    target, so judging by message alone would demote a definitive miss to a
+    transient API error and spend the next provider on a page that does not
+    exist. The status is read first for exactly this case.
+    """
+    with respx.mock(assert_all_called=True) as router:
+        router.post(_SCRAPE_URL).respond(
+            json={
+                "success": False,
+                "data": {
+                    "markdown": "# PostgreSQL: Not Found\n\n" + ("x " * 80),
+                    "metadata": {"statusCode": 404},
+                },
+                "error": "lightpanda_budget_truncated",
+            }
+        )
+        async with httpx.AsyncClient() as client:
+            with pytest.raises(ProviderError) as error_info:
+                await _provider(client).fetch_url(
+                    "https://example.test/missing"
+                )
+
+    assert error_info.value.error_type is ErrorType.NOT_FOUND
+    assert str(error_info.value) == "fastCRW target returned status 404"
 
 
 async def test_fastcrw_maps_target_status_to_not_found() -> None:

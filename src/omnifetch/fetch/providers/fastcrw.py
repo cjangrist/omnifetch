@@ -1,9 +1,16 @@
 """fastCRW fetch provider: URL to clean markdown plus metadata.
 
 The scrape surface is Firecrawl-compatible in request shape but diverges in its
-error envelope: a missing target answers HTTP 200 with ``success: false`` and a
-populated ``data.markdown`` holding some *other* page, so the success flag is
-checked before any content is read.
+error envelope. A missing target answers HTTP 200 with ``success: false`` and a
+populated ``data.markdown`` holding some *other* page, so no content is read
+until the outcome is known.
+
+``metadata.statusCode`` is the authority on whether the target was missing, and
+it is read first, because the accompanying ``error`` string is not reliably
+about the target at all: a live 404 came back as ``lightpanda_budget_truncated``
+alongside ``statusCode: 404``. Judging that response by its message alone
+demotes a definitive miss to a transient failure and spends another provider on
+a page that does not exist.
 """
 
 from __future__ import annotations
@@ -89,18 +96,17 @@ class FastcrwFetchProvider(FetchProvider):
                 },
                 timeout_s=self.timeout_s,
             )
-            if not data.success:
-                self._raise_unsuccessful(data.error, url)
-            if data.data is None:
-                raise ValueError("fastCRW scrape returned no content")
-
-            metadata = data.data.metadata
+            metadata = data.data.metadata if data.data else None
             if metadata and metadata.status_code == _HTTP_NOT_FOUND_STATUS:
                 raise ProviderError(
                     ErrorType.NOT_FOUND,
                     "fastCRW target returned status 404",
                     self.name,
                 )
+            if not data.success:
+                self._raise_unsuccessful(data.error, url)
+            if data.data is None:
+                raise ValueError("fastCRW scrape returned no content")
             if not data.data.markdown:
                 raise ValueError("fastCRW scrape returned no content")
             return FetchResult(
