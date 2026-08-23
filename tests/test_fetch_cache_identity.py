@@ -20,7 +20,7 @@ from omnifetch.fetch.engine.race import FetchRaceResult
 from omnifetch.fetch.engine.runtime import Engine, same_url
 from omnifetch.fetch.shared.types import FetchResult
 from omnifetch.server import build_engine
-from omnifetch.tools.fetch import execute_web_fetch
+from omnifetch.tools.fetch import cache_identity_url, execute_web_fetch
 
 RACES: list[str] = []
 
@@ -219,6 +219,48 @@ async def test_arbitrary_rejected_type_is_named_neutrally(
 
     assert RACES == ["https://example.com/e"]
     assert "rejected (result of type int)" in caplog.text
+
+
+async def test_identity_url_is_what_the_fetch_cache_actually_keyed_on() -> None:
+    """A downstream cache can rebuild the entry the fetch cache is holding.
+
+    This is the whole reason the helper is public. Asserting it returns some
+    canonical-looking string would pass just as well if the fetch path keyed on
+    something else entirely, so the assertion goes through the real cache: the
+    key rebuilt from the helper must find the entry `execute_web_fetch` wrote.
+    """
+    engine = _engine(_drop_trailing_slash)
+    try:
+        await execute_web_fetch(engine, "https://example.com/kept/")
+        rebuilt = fetch_module._fetch_cache_key(
+            cache_identity_url(engine, "https://example.com/kept/"), None, []
+        )
+
+        assert await engine.cache.get(rebuilt) is not None
+    finally:
+        await engine.aclose()
+
+
+async def test_identity_url_strips_like_the_fetch_path_does(
+    plain_engine: Engine,
+) -> None:
+    """Untrimmed input must not key apart from the entry already held.
+
+    `execute_web_fetch` trims before keying, so a caller handing this helper a
+    raw URL would otherwise derive a key for a page the fetch cache is serving
+    under a different one -- a permanent miss that looks like a cold cache.
+    """
+    await execute_web_fetch(plain_engine, "  https://example.com/pad  ")
+    rebuilt = fetch_module._fetch_cache_key(
+        cache_identity_url(plain_engine, "  https://example.com/pad  "),
+        None,
+        [],
+    )
+
+    assert cache_identity_url(plain_engine, "  https://example.com/pad  ") == (
+        "https://example.com/pad"
+    )
+    assert await plain_engine.cache.get(rebuilt) is not None
 
 
 def test_same_url_is_the_exported_default() -> None:

@@ -139,8 +139,23 @@ def _cache_key_reference(key: str) -> str:
     return key.rsplit(":", maxsplit=1)[-1][:12]
 
 
-def _cache_identity_url(engine: Engine, url: str) -> str:
+def cache_identity_url(engine: Engine, url: str) -> str:
     """Return the URL spelling two requests must share to be one entry.
+
+    This is public because the fetch cache is not the only cache keyed on a
+    page. A caller that fetches through this engine and then caches something
+    *derived* from the page -- a summary, an extraction, a grounded snippet --
+    has to agree with the fetch cache about which spellings are the same page,
+    or the two caches partition the same traffic differently and the derived
+    one misses on entries the fetch cache is serving. Sharing this function is
+    what keeps that agreement from having to be re-implemented, and re-derived
+    correctly, by every downstream cache.
+
+    Whitespace is stripped here rather than by the caller for the same reason:
+    ``execute_web_fetch`` strips before keying, so a caller that did not would
+    silently key ``" https://x/ "`` apart from the entry the fetch cache holds
+    under the trimmed spelling. Stripping is idempotent, so the internal call
+    site passing an already-trimmed URL is unaffected.
 
     The canonicalizer is supplied by whoever built the engine, so it is
     treated as foreign code on a paying path. Anything it raises falls back to
@@ -156,6 +171,7 @@ def _cache_identity_url(engine: Engine, url: str) -> str:
     they configured appears to do nothing. The reason and the result's type are
     bounded values; the result itself is never logged.
     """
+    url = url.strip()
     try:
         canonical: object = engine.canonicalize_cache_url(url)
     except Exception as error:
@@ -425,7 +441,7 @@ async def execute_web_fetch(
     )
     _validate_provider_controls(provider, skip, active_names)
     cache_key = _fetch_cache_key(
-        _cache_identity_url(engine, normalized_url), provider, skip
+        cache_identity_url(engine, normalized_url), provider, skip
     )
 
     while True:

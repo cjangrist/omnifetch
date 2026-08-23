@@ -144,6 +144,26 @@ entry -- folding a trailing slash or a default port, for instance. It
 defaults to identity, affects the cache key only, and never changes the
 URL a provider is asked for.
 
+A composing server that caches something *derived* from a page -- a summary, an
+extraction, a grounded snippet -- should use
+`omnifetch.tools.fetch.cache_identity_url(engine, url)` as the **page component**
+of that cache's key, rather than the raw URL or the fetched content. It applies
+the same trimming and canonicalizer that `execute_web_fetch` keys on, so the two
+caches agree on which spellings are one page.
+
+Keying a derived cache on fetched bytes instead looks equivalent until a
+different provider wins the race and returns the same page in different
+markdown: the derived entry becomes unreachable and the work behind it is
+bought again.
+
+The page component is not the whole key. Add whatever else changes the derived
+value -- a summary keyed only by URL would serve one question's answer to
+another. Note that `provider` and `skip_providers` are part of the *fetch* key
+but deliberately not of `cache_identity_url`, because they select a rendering
+rather than a page. Include them in a derived key only when the derived value
+is about one provider's specific output; for a value about the page itself,
+collapsing across providers is the point.
+
 ### Cache storage
 
 Omnifetch constructs one
