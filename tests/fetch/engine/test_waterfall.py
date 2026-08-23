@@ -59,6 +59,7 @@ def test_breaker_topology_matches_authoritative_order() -> None:
 def test_waterfall_topology_matches_authoritative_order() -> None:
     expected = (
         Step(kind="solo", providers=("tavily",)),
+        Step(kind="solo", providers=("fastcrw",)),
         Step(kind="solo", providers=("firecrawl",)),
         Step(kind="solo", providers=("kimi",)),
         Step(kind="parallel", providers=("linkup", "cloudflare_browser")),

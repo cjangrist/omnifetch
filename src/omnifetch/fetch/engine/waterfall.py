@@ -72,6 +72,7 @@ BREAKERS: tuple[Breaker, ...] = (
 
 WATERFALL_STEPS: tuple[Step, ...] = (
     Step(kind="solo", providers=("tavily",)),
+    Step(kind="solo", providers=("fastcrw",)),
     Step(kind="solo", providers=("firecrawl",)),
     Step(kind="solo", providers=("kimi",)),
     Step(kind="parallel", providers=("linkup", "cloudflare_browser")),
