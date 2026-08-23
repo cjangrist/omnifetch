@@ -144,6 +144,16 @@ entry -- folding a trailing slash or a default port, for instance. It
 defaults to identity, affects the cache key only, and never changes the
 URL a provider is asked for.
 
+A composing server that caches something *derived* from a page -- a summary,
+an extraction, a grounded snippet -- should key it on
+`omnifetch.tools.fetch.cache_identity_url(engine, url)` rather than on the raw
+URL or on the fetched content. It applies the same trimming and canonicalizer
+that `execute_web_fetch` keys on, so the derived cache partitions traffic the
+same way the fetch cache does. Keying such a cache on fetched bytes instead
+looks equivalent until a different provider wins the race and returns the same
+page in different markdown: the derived entry is then unreachable, and the
+work behind it is bought again.
+
 ### Cache storage
 
 Omnifetch constructs one
