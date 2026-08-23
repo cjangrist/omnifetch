@@ -19,7 +19,10 @@ from omnifetch.fetch.providers import (
     get_active_fetch_providers,
     UnifiedFetchProvider,
 )
-from omnifetch.fetch.providers.fastcrw import FastcrwFetchProvider
+from omnifetch.fetch.providers.fastcrw import (
+    _DEFINITELY_MISSING_STATUSES,
+    FastcrwFetchProvider,
+)
 from omnifetch.fetch.shared.config import ProviderSecrets
 from omnifetch.fetch.shared.types import ErrorType, FetchResult, ProviderError
 
@@ -181,8 +184,9 @@ async def test_fastcrw_discards_the_body_returned_with_a_missing_target() -> (
 
     Probing the live API for a missing path under ``example.com`` returned
     ``success: false`` alongside the markdown of the site root. Reading the
-    content before the success flag would hand a caller the wrong page under
-    the URL it asked for, so the flag is checked first.
+    content before the outcome is known would hand a caller the wrong page
+    under the URL it asked for, so neither the success flag nor the status is
+    allowed to be reached through the body.
     """
     missing_url = "https://example.test/definitely-missing"
     other_page = "# Some Other Page\n\n" + ("body " * 60)
@@ -230,9 +234,10 @@ async def test_fastcrw_reads_a_missing_target_out_of_the_error_message() -> (
     )
 
 
-async def test_fastcrw_trusts_the_status_over_an_unrelated_error_string() -> (
-    None
-):
+@pytest.mark.parametrize("status", sorted(_DEFINITELY_MISSING_STATUSES))
+async def test_fastcrw_trusts_the_status_over_an_unrelated_error_string(
+    status: int,
+) -> None:
     """A real 404 arrived labelled ``lightpanda_budget_truncated``.
 
     Fetching a missing page under postgresql.org through the live API produced
@@ -241,6 +246,10 @@ async def test_fastcrw_trusts_the_status_over_an_unrelated_error_string() -> (
     target, so judging by message alone would demote a definitive miss to a
     transient API error and spend the next provider on a page that does not
     exist. The status is read first for exactly this case.
+
+    Parametrized over the whole definitive set rather than 404 alone: a 410 in
+    the same costume is the identical defect, and the message pattern would not
+    recognize one.
     """
     with respx.mock(assert_all_called=True) as router:
         router.post(_SCRAPE_URL).respond(
@@ -248,7 +257,7 @@ async def test_fastcrw_trusts_the_status_over_an_unrelated_error_string() -> (
                 "success": False,
                 "data": {
                     "markdown": "# PostgreSQL: Not Found\n\n" + ("x " * 80),
-                    "metadata": {"statusCode": 404},
+                    "metadata": {"statusCode": status},
                 },
                 "error": "lightpanda_budget_truncated",
             }
@@ -260,18 +269,19 @@ async def test_fastcrw_trusts_the_status_over_an_unrelated_error_string() -> (
                 )
 
     assert error_info.value.error_type is ErrorType.NOT_FOUND
-    assert str(error_info.value) == "fastCRW target returned status 404"
+    assert str(error_info.value) == (f"fastCRW target returned status {status}")
 
 
-async def test_fastcrw_maps_target_status_to_not_found() -> None:
-    """A success flag paired with a 404 status is still a missing target."""
+@pytest.mark.parametrize("status", sorted(_DEFINITELY_MISSING_STATUSES))
+async def test_fastcrw_maps_target_status_to_not_found(status: int) -> None:
+    """A success flag paired with a missing status is still a missing target."""
     with respx.mock(assert_all_called=True) as router:
         router.post(_SCRAPE_URL).respond(
             json={
                 "success": True,
                 "data": {
                     "markdown": "# Not the page you asked for",
-                    "metadata": {"statusCode": 404},
+                    "metadata": {"statusCode": status},
                 },
             }
         )
@@ -282,7 +292,7 @@ async def test_fastcrw_maps_target_status_to_not_found() -> None:
                 )
 
     assert error_info.value.error_type is ErrorType.NOT_FOUND
-    assert str(error_info.value) == "fastCRW target returned status 404"
+    assert str(error_info.value) == (f"fastCRW target returned status {status}")
 
 
 async def test_fastcrw_maps_rejected_credentials() -> None:
