@@ -61,7 +61,7 @@ async def test_tool_metadata_is_advertised(mcp_server: FastMCP) -> None:
     tool = await _tool_by_name(mcp_server, "say_hello")
     assert tool.title == "Say Hello"
     assert tool.annotations is not None
-    assert tool.annotations.readOnlyHint is True
+    assert tool.annotations.read_only_hint is True
 
 
 async def test_pure_function_returns_validated_response() -> None:
