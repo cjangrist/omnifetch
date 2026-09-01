@@ -18,6 +18,8 @@ from omnifetch.fetch.engine.waterfall import (
 )
 from omnifetch.fetch.shared.types import ErrorType, FetchResult, ProviderError
 
+_NOT_FOUND_PROVIDER_QUORUM = 2
+
 
 class FetchDispatcher(Protocol):
     """Provider dispatcher protocol used by the race executor."""
@@ -41,6 +43,15 @@ class ProviderAttemptFailure:
     provider: str
     error: str
     duration_ms: int
+    error_type: ErrorType = ErrorType.PROVIDER_ERROR
+
+
+@dataclass(frozen=True, slots=True)
+class FetchExhaustionDetails:
+    """Ordered attempts and provider failures from an exhausted waterfall."""
+
+    providers_attempted: tuple[str, ...]
+    providers_failed: tuple[ProviderAttemptFailure, ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -105,11 +116,39 @@ def _all_providers_failed_error(
             f"No active fetch provider is eligible for {url[:200]}",
             ErrorType.INVALID_INPUT,
         )
+    not_found_providers = {
+        failure.provider
+        for failure in failed
+        if failure.error_type is ErrorType.NOT_FOUND
+    }
+    all_failures_not_found = bool(failed) and all(
+        failure.error_type is ErrorType.NOT_FOUND for failure in failed
+    )
+    confirmed_not_found = (
+        all_failures_not_found
+        or len(not_found_providers) >= _NOT_FOUND_PROVIDER_QUORUM
+    )
+    error_type = (
+        ErrorType.NOT_FOUND if confirmed_not_found else ErrorType.PROVIDER_ERROR
+    )
+    evidence_label = (
+        "every failed attempt"
+        if all_failures_not_found
+        else "multiple independent providers"
+    )
+    message = (
+        f"No provider returned content for {url[:200]}; "
+        f"{evidence_label} "
+        f"reported that it was not found. Tried: {', '.join(attempted)}"
+        if confirmed_not_found
+        else f"All providers failed for {url[:200]}. "
+        f"Tried: {', '.join(attempted)}"
+    )
     return ProviderError(
-        ErrorType.PROVIDER_ERROR,
-        f"All providers failed for {url[:200]}. Tried: {', '.join(attempted)}",
+        error_type,
+        message,
         "waterfall",
-        details=tuple(failed),
+        details=FetchExhaustionDetails(tuple(attempted), tuple(failed)),
     )
 
 
@@ -153,8 +192,18 @@ def _record_failure(
     start_time: float,
 ) -> None:
     """Record a provider failure in race metadata."""
+    error_type = (
+        error.error_type
+        if isinstance(error, ProviderError)
+        else ErrorType.PROVIDER_ERROR
+    )
     ctx.failed.append(
-        ProviderAttemptFailure(provider, str(error), _duration_ms(start_time))
+        ProviderAttemptFailure(
+            provider,
+            str(error),
+            _duration_ms(start_time),
+            error_type,
+        )
     )
 
 
@@ -175,7 +224,7 @@ async def _fetch_provider(
     *,
     record_attempt: bool = True,
 ) -> FetchResult | None:
-    """Attempt one active provider and record non-definitive failures."""
+    """Attempt one active provider and record every provider-local failure."""
     if provider not in ctx.active:
         return None
     if record_attempt:
@@ -189,8 +238,6 @@ async def _fetch_provider(
         return result
     except ProviderError as error:
         _record_failure(ctx, provider, error, start_time)
-        if error.error_type is ErrorType.NOT_FOUND:
-            raise
         return None
     except Exception as error:
         _record_failure(ctx, provider, error, start_time)
@@ -218,7 +265,6 @@ async def _await_parallel_winners(
     provider_order = {
         provider: index for index, provider in enumerate(tasks.values())
     }
-    not_found_error: ProviderError | None = None
     while pending and len(ctx.winners) < target_count:
         done, pending = await asyncio.wait(
             pending,
@@ -229,15 +275,9 @@ async def _await_parallel_winners(
             key=lambda completed: provider_order[tasks[completed]],
         ):
             provider = tasks[task]
-            try:
-                result = task.result()
-            except ProviderError as error:
-                not_found_error = error
-                continue
+            result = task.result()
             if result is not None:
                 _record_winner(ctx, provider, result, target_count)
-        if not_found_error is not None:
-            raise not_found_error
 
 
 async def _run_parallel(
@@ -400,30 +440,16 @@ async def run_fetch_race(
     active = _active_after_skip(active_names, effective_skip)
     target_count = min(2 if effective_skip else 1, len(active))
     ctx = _RaceContext(dispatcher, url, active, [], [], [])
-    breaker_not_found_after_success = False
-
     for breaker in BREAKERS:
         if len(ctx.winners) >= target_count:
             break
         if matches_breaker(url, breaker):
-            try:
-                await _run_solo(ctx, breaker.provider, target_count)
-            except ProviderError as error:
-                if error.error_type is ErrorType.NOT_FOUND and ctx.winners:
-                    breaker_not_found_after_success = True
-                    break
-                raise
+            await _run_solo(ctx, breaker.provider, target_count)
 
-    if not breaker_not_found_after_success:
-        for step in WATERFALL_STEPS:
-            if len(ctx.winners) >= target_count:
-                break
-            try:
-                await _execute_step(ctx, step, target_count)
-            except ProviderError as error:
-                if error.error_type is ErrorType.NOT_FOUND and ctx.winners:
-                    break
-                raise
+    for step in WATERFALL_STEPS:
+        if len(ctx.winners) >= target_count:
+            break
+        await _execute_step(ctx, step, target_count)
 
     if ctx.winners:
         return _build_result(

@@ -107,9 +107,19 @@ Register with an MCP client (e.g. Claude Code / Claude Desktop):
 | | |
 |---|---|
 | Input | `url: str` (required, 1–2000 chars), `skip_providers: str | list[str]` (optional) |
-| Output | `{ "url", "title", "content", "source_provider", "total_duration_ms", "metadata", "providers_attempted", "providers_failed", "alternative_results" }` (schema-enforced) |
+| Output | `{ "status", "url", "title", "content", "source_provider", "total_duration_ms", "metadata", "providers_attempted", "providers_failed", "alternative_results", "message" }` (schema-enforced) |
 | Hints | `readOnlyHint`, `idempotentHint`, `openWorldHint` |
 | Providers | Every provider in the secrets table below is callable once its provider-native secret is configured. |
+
+`status` is `success` when page content was returned. A provider-local 404 is
+recorded and the remaining eligible waterfall continues. If every provider is
+exhausted, MCP returns a normal structured result with `status: not_found`
+when every failure reports the page missing or at least two independent
+providers corroborate it. A lone 404 mixed with inconclusive failures returns
+`status: unavailable`; either terminal status remains a normal MCP result.
+`providers_attempted`, `providers_failed`, and `message` retain the evidence.
+Invalid tool inputs remain MCP errors. The REST route preserves HTTP status
+semantics, including 404 and 502 responses.
 
 ## Configuration
 

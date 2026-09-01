@@ -55,10 +55,7 @@ def _install_redis_mocks(
 
 def _filesystem_data_files(cache_path: Path) -> list[Path]:
     """Return filesystem-cache data entries without management files."""
-    management_name = hashlib.md5(
-        b"__wz_cache_count",
-        usedforsecurity=False,
-    ).hexdigest()
+    management_name = hashlib.sha256(b"__wz_cache_count").hexdigest()
     return [
         path
         for path in cache_path.iterdir()
@@ -69,10 +66,7 @@ def _filesystem_data_files(cache_path: Path) -> list[Path]:
 
 def _filesystem_count(cache_path: Path) -> int:
     """Read cachelib's JSON-encoded filesystem entry count."""
-    management_name = hashlib.md5(
-        b"__wz_cache_count",
-        usedforsecurity=False,
-    ).hexdigest()
+    management_name = hashlib.sha256(b"__wz_cache_count").hexdigest()
     count_bytes = (cache_path / management_name).read_bytes()[4:]
     return int(json.loads(count_bytes))
 

@@ -7,7 +7,7 @@ from tool behavior.
 
 from __future__ import annotations
 
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -67,6 +67,10 @@ class FetchProviderFailure(BaseModel):
         float,
         Field(description="Provider attempt duration in milliseconds.", ge=0),
     ]
+    error_type: Annotated[
+        str,
+        Field(description="Stable provider failure category."),
+    ] = "PROVIDER_ERROR"
 
 
 class FetchAlternative(BaseModel):
@@ -92,6 +96,17 @@ class FetchResponse(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
+    status: Annotated[
+        Literal["success", "not_found", "unavailable"],
+        Field(
+            description=(
+                "Outcome of the fetch. Only success carries page content; "
+                "not_found requires unanimous missing evidence or at least "
+                "two independent providers, while unavailable is "
+                "inconclusive exhaustion."
+            )
+        ),
+    ] = "success"
     url: Annotated[str, Field(description="Resolved URL for the result.")]
     title: Annotated[str, Field(description="Extracted page title.")]
     content: Annotated[str, Field(description="Fetched markdown content.")]
@@ -118,4 +133,8 @@ class FetchResponse(BaseModel):
     alternative_results: Annotated[
         list[FetchAlternative] | None,
         Field(description="Additional successful provider results."),
+    ] = None
+    message: Annotated[
+        str | None,
+        Field(description="Human-readable detail for a non-success outcome."),
     ] = None

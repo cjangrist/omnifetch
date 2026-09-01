@@ -17,6 +17,7 @@ from pydantic import ValidationError
 
 from omnifetch.fetch.engine.race import (
     AlternativeFetchResult,
+    FetchExhaustionDetails,
     FetchRaceResult,
     ProviderAttemptFailure,
     run_fetch_race,
@@ -52,10 +53,10 @@ _TOOL_DESCRIPTION = (
 )
 _TOOL_ANNOTATIONS = ToolAnnotations(
     title=_TOOL_TITLE,
-    readOnlyHint=True,
-    destructiveHint=False,
-    idempotentHint=True,
-    openWorldHint=True,
+    read_only_hint=True,
+    destructive_hint=False,
+    idempotent_hint=True,
+    open_world_hint=True,
 )
 
 
@@ -379,6 +380,7 @@ def _failure_to_response(
         provider=failure.provider,
         error=failure.error,
         duration_ms=failure.duration_ms,
+        error_type=failure.error_type.value,
     )
 
 
@@ -402,6 +404,7 @@ def _to_response(race: FetchRaceResult) -> FetchResponse:
         for alternative in race.alternative_results
     ]
     return FetchResponse(
+        status="success",
         url=race.result.url,
         title=race.result.title,
         content=race.result.content,
@@ -413,6 +416,38 @@ def _to_response(race: FetchRaceResult) -> FetchResponse:
             _failure_to_response(failure) for failure in race.providers_failed
         ],
         alternative_results=alternatives or None,
+    )
+
+
+def _terminal_failure_response(
+    url: str,
+    error: ProviderError,
+    start_time: float,
+) -> FetchResponse:
+    """Return a non-error MCP result for an exhausted provider waterfall."""
+    details = (
+        error.details
+        if isinstance(error.details, FetchExhaustionDetails)
+        else None
+    )
+    attempted = list(details.providers_attempted) if details else []
+    failures = list(details.providers_failed) if details else []
+    return FetchResponse(
+        status=(
+            "not_found"
+            if error.error_type is ErrorType.NOT_FOUND
+            else "unavailable"
+        ),
+        url=url.strip(),
+        title="",
+        content="",
+        source_provider="",
+        total_duration_ms=_cache_hit_duration_ms(start_time),
+        providers_attempted=attempted,
+        providers_failed=[
+            _failure_to_response(failure) for failure in failures
+        ],
+        message=str(error),
     )
 
 
@@ -494,6 +529,7 @@ def register_web_fetch_tool(server: FastMCP, engine: Engine) -> None:
         skip_providers: SkipProviders = None,
         ctx: Context | None = None,
     ) -> FetchResponse:
+        start_time = time.monotonic()
         try:
             return await execute_web_fetch(
                 engine,
@@ -501,7 +537,9 @@ def register_web_fetch_tool(server: FastMCP, engine: Engine) -> None:
                 skip_providers=skip_providers,
             )
         except ProviderError as error:
-            raise ToolError(str(error)) from error
+            if error.error_type is ErrorType.INVALID_INPUT:
+                raise ToolError(str(error)) from error
+            return _terminal_failure_response(url, error, start_time)
 
     server.tool(
         name=_TOOL_NAME,

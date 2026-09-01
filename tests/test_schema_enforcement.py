@@ -16,7 +16,7 @@ async def _tool_by_name(mcp_server: FastMCP, name: str) -> Tool:
 
 
 async def test_input_schema_constraints(mcp_server: FastMCP) -> None:
-    schema = (await _tool_by_name(mcp_server, "say_hello")).inputSchema
+    schema = (await _tool_by_name(mcp_server, "say_hello")).input_schema
     assert schema["additionalProperties"] is False
     name = schema["properties"]["name"]
     assert name["type"] == "string"
@@ -26,7 +26,7 @@ async def test_input_schema_constraints(mcp_server: FastMCP) -> None:
 
 
 async def test_output_schema_present(mcp_server: FastMCP) -> None:
-    schema = (await _tool_by_name(mcp_server, "say_hello")).outputSchema
+    schema = (await _tool_by_name(mcp_server, "say_hello")).output_schema
     assert schema is not None
     assert schema["properties"]["message"]["type"] == "string"
     assert schema["required"] == ["message"]
@@ -71,5 +71,5 @@ async def test_every_tool_enforces_input_and_output_schema(
         tools = await client.list_tools()
     assert tools, "no tools registered"
     for tool in tools:
-        assert tool.inputSchema.get("additionalProperties") is False, tool.name
-        assert tool.outputSchema is not None, tool.name
+        assert tool.input_schema.get("additionalProperties") is False, tool.name
+        assert tool.output_schema is not None, tool.name

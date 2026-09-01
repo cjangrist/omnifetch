@@ -9,6 +9,7 @@ import pytest
 
 from omnifetch.fetch.engine.race import (
     AlternativeFetchResult,
+    FetchExhaustionDetails,
     FetchRaceResult,
     run_fetch_race,
 )
@@ -366,15 +367,21 @@ async def test_later_breaker_not_found_preserves_prior_success() -> None:
     )
 
     assert result.provider_used == "supadata"
-    assert result.alternative_results == ()
-    assert result.providers_attempted == ("supadata", "sociavault")
+    assert result.alternative_results == (
+        AlternativeFetchResult("firecrawl", _result("firecrawl")),
+    )
+    assert result.providers_attempted == (
+        "supadata",
+        "sociavault",
+        "firecrawl",
+    )
     assert [failure.provider for failure in result.providers_failed] == [
         "sociavault"
     ]
-    assert dispatcher.calls == ["supadata", "sociavault"]
+    assert dispatcher.calls == ["supadata", "sociavault", "firecrawl"]
 
 
-async def test_not_found_fast_fails_waterfall() -> None:
+async def test_breaker_not_found_falls_through_to_general_waterfall() -> None:
     dispatcher = _FakeDispatcher(
         {
             "github": _ProviderBehavior(
@@ -384,11 +391,13 @@ async def test_not_found_fast_fails_waterfall() -> None:
         }
     )
 
-    with pytest.raises(ProviderError) as error_info:
-        await run_fetch_race(dispatcher, "https://github.com/missing/repo")
+    result = await run_fetch_race(dispatcher, "https://github.com/missing/repo")
 
-    assert error_info.value.error_type is ErrorType.NOT_FOUND
-    assert dispatcher.calls == ["github"]
+    assert result.provider_used == "tavily"
+    assert result.providers_attempted == ("github", "tavily")
+    assert result.providers_failed[0].provider == "github"
+    assert result.providers_failed[0].error_type is ErrorType.NOT_FOUND
+    assert dispatcher.calls == ["github", "tavily"]
 
 
 async def test_skip_provider_uses_next_active_candidate() -> None:
@@ -529,12 +538,22 @@ async def test_parallel_not_found_after_success_returns_primary() -> None:
     )
 
     assert result.provider_used == "linkup"
-    assert result.alternative_results == ()
-    assert result.providers_attempted == ("linkup", "cloudflare_browser")
+    assert result.alternative_results == (
+        AlternativeFetchResult("scrapfly", _result("scrapfly")),
+    )
+    assert result.providers_attempted == (
+        "linkup",
+        "cloudflare_browser",
+        "scrapfly",
+    )
     assert [failure.provider for failure in result.providers_failed] == [
         "cloudflare_browser"
     ]
-    assert dispatcher.calls == ["linkup", "cloudflare_browser"]
+    assert dispatcher.calls == [
+        "linkup",
+        "cloudflare_browser",
+        "scrapfly",
+    ]
 
 
 async def test_later_waterfall_not_found_preserves_prior_success() -> None:
@@ -562,7 +581,7 @@ async def test_later_waterfall_not_found_preserves_prior_success() -> None:
     ]
 
 
-async def test_parallel_not_found_cancels_pending_and_fast_fails() -> None:
+async def test_parallel_not_found_does_not_cancel_a_possible_winner() -> None:
     dispatcher = _FakeDispatcher(
         {
             "tavily": _ProviderBehavior(_result("tavily")),
@@ -571,21 +590,22 @@ async def test_parallel_not_found_cancels_pending_and_fast_fails() -> None:
             ),
             "cloudflare_browser": _ProviderBehavior(
                 _result("cloudflare_browser"),
-                delay_s=1.0,
+                delay_s=0.01,
             ),
         }
     )
 
-    with pytest.raises(ProviderError) as error_info:
-        await run_fetch_race(
-            dispatcher,
-            "https://example.test/page",
-            skip_providers=("tavily",),
-        )
+    result = await run_fetch_race(
+        dispatcher,
+        "https://example.test/page",
+        skip_providers=("tavily",),
+    )
 
-    assert error_info.value.error_type is ErrorType.NOT_FOUND
+    assert result.provider_used == "cloudflare_browser"
+    assert result.providers_failed[0].provider == "linkup"
+    assert result.providers_failed[0].error_type is ErrorType.NOT_FOUND
     assert dispatcher.calls == ["linkup", "cloudflare_browser"]
-    assert dispatcher.cancelled == ["cloudflare_browser"]
+    assert dispatcher.cancelled == []
 
 
 async def test_parallel_success_cancels_excess_healthy_providers() -> None:
@@ -651,7 +671,7 @@ async def test_sequential_step_collects_two_winners_for_skip_provider() -> None:
     assert result.providers_attempted == ("jina", "spider")
 
 
-async def test_sequential_not_found_without_success_fast_fails() -> None:
+async def test_sequential_not_found_falls_through_to_later_provider() -> None:
     dispatcher = _FakeDispatcher(
         {
             "tavily": _ProviderBehavior(_result("tavily")),
@@ -662,15 +682,16 @@ async def test_sequential_not_found_without_success_fast_fails() -> None:
         }
     )
 
-    with pytest.raises(ProviderError) as error_info:
-        await run_fetch_race(
-            dispatcher,
-            "https://example.test/page",
-            skip_providers=("tavily",),
-        )
+    result = await run_fetch_race(
+        dispatcher,
+        "https://example.test/page",
+        skip_providers=("tavily",),
+    )
 
-    assert error_info.value.error_type is ErrorType.NOT_FOUND
-    assert dispatcher.calls == ["jina"]
+    assert result.provider_used == "spider"
+    assert result.providers_failed[0].provider == "jina"
+    assert result.providers_failed[0].error_type is ErrorType.NOT_FOUND
+    assert dispatcher.calls == ["jina", "spider"]
 
 
 async def test_sequential_not_found_after_success_returns_primary() -> None:
@@ -741,16 +762,84 @@ async def test_waterfall_exhaustion_reports_attempts() -> None:
         "Tried: tavily, firecrawl"
     )
     details = error_info.value.details
-    assert isinstance(details, tuple)
-    assert len(details) == 2
-    assert [failure.provider for failure in details] == [
+    assert isinstance(details, FetchExhaustionDetails)
+    assert details.providers_attempted == ("tavily", "firecrawl")
+    assert len(details.providers_failed) == 2
+    assert [failure.provider for failure in details.providers_failed] == [
         "tavily",
         "firecrawl",
     ]
-    assert [failure.error for failure in details] == [
+    assert [failure.error for failure in details.providers_failed] == [
         "tavily failed",
         "transport failed",
     ]
+    assert [failure.error_type for failure in details.providers_failed] == [
+        ErrorType.API_ERROR,
+        ErrorType.PROVIDER_ERROR,
+    ]
+
+
+async def test_single_not_found_with_inconclusive_failure_is_unavailable() -> (
+    None
+):
+    dispatcher = _FakeDispatcher(
+        {
+            "tavily": _ProviderBehavior(
+                error=_provider_error("tavily", ErrorType.NOT_FOUND)
+            ),
+            "firecrawl": _ProviderBehavior(
+                error=_provider_error("firecrawl", ErrorType.API_ERROR)
+            ),
+        }
+    )
+
+    with pytest.raises(ProviderError) as error_info:
+        await run_fetch_race(dispatcher, "https://example.test/missing")
+
+    assert error_info.value.error_type is ErrorType.PROVIDER_ERROR
+    assert str(error_info.value).startswith("All providers failed")
+    assert dispatcher.calls == ["tavily", "firecrawl"]
+
+
+async def test_all_not_found_failures_are_classified_as_not_found() -> None:
+    dispatcher = _FakeDispatcher(
+        {
+            "tavily": _ProviderBehavior(
+                error=_provider_error("tavily", ErrorType.NOT_FOUND)
+            ),
+            "firecrawl": _ProviderBehavior(
+                error=_provider_error("firecrawl", ErrorType.NOT_FOUND)
+            ),
+        }
+    )
+
+    with pytest.raises(ProviderError) as error_info:
+        await run_fetch_race(dispatcher, "https://example.test/missing")
+
+    assert error_info.value.error_type is ErrorType.NOT_FOUND
+    assert "every failed attempt reported" in str(error_info.value)
+
+
+async def test_two_not_found_providers_outweigh_inconclusive_failure() -> None:
+    dispatcher = _FakeDispatcher(
+        {
+            "tavily": _ProviderBehavior(
+                error=_provider_error("tavily", ErrorType.NOT_FOUND)
+            ),
+            "firecrawl": _ProviderBehavior(
+                error=_provider_error("firecrawl", ErrorType.NOT_FOUND)
+            ),
+            "kimi": _ProviderBehavior(
+                error=_provider_error("kimi", ErrorType.API_ERROR)
+            ),
+        }
+    )
+
+    with pytest.raises(ProviderError) as error_info:
+        await run_fetch_race(dispatcher, "https://example.test/missing")
+
+    assert error_info.value.error_type is ErrorType.NOT_FOUND
+    assert "multiple independent providers reported" in str(error_info.value)
 
 
 async def test_no_eligible_topology_provider_is_invalid() -> None:

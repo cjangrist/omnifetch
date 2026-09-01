@@ -19,6 +19,7 @@ from omnifetch.cache import build_cache_backend
 from omnifetch.config import load_config
 from omnifetch.fetch.engine.race import (
     AlternativeFetchResult,
+    FetchExhaustionDetails,
     FetchRaceResult,
     ProviderAttemptFailure,
 )
@@ -90,10 +91,10 @@ async def test_web_fetch_tool_metadata_is_registered(
     tool = next(item for item in tools if item.name == "web_fetch")
     assert tool.title == "Web Fetch (multi-provider waterfall)"
     assert tool.annotations is not None
-    assert tool.annotations.readOnlyHint is True
-    assert tool.annotations.idempotentHint is True
-    assert tool.annotations.openWorldHint is True
-    assert tool.annotations.destructiveHint is False
+    assert tool.annotations.read_only_hint is True
+    assert tool.annotations.idempotent_hint is True
+    assert tool.annotations.open_world_hint is True
+    assert tool.annotations.destructive_hint is False
 
 
 async def test_web_fetch_tool_fetches_with_tavily(
@@ -121,6 +122,7 @@ async def test_web_fetch_tool_fetches_with_tavily(
             )
 
     assert result.is_error is False
+    assert result.data.status == "success"
     assert result.data.source_provider == "tavily"
     assert result.data.url == "https://canonical.example/article"
     assert result.data.content
@@ -418,7 +420,7 @@ async def test_web_fetch_tool_flattens_alternative_results(
     assert result.data.alternative_results[0].source_provider == "kimi"
 
 
-async def test_web_fetch_tool_surfaces_provider_errors(
+async def test_web_fetch_tool_returns_unavailable_without_tool_error(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     async def fake_run_fetch_race(
@@ -432,19 +434,126 @@ async def test_web_fetch_tool_surfaces_provider_errors(
             ErrorType.PROVIDER_ERROR,
             f"All providers failed for {url}. Tried: tavily",
             "waterfall",
+            details=FetchExhaustionDetails(
+                providers_attempted=("tavily", "firecrawl"),
+                providers_failed=(
+                    ProviderAttemptFailure(
+                        "firecrawl",
+                        "connection reset",
+                        9,
+                        ErrorType.PROVIDER_ERROR,
+                    ),
+                    ProviderAttemptFailure(
+                        "tavily",
+                        "upstream unavailable",
+                        7,
+                        ErrorType.API_ERROR,
+                    ),
+                ),
+            ),
+        )
+
+    monkeypatch.setattr(fetch_module, "run_fetch_race", fake_run_fetch_race)
+    server, client = _fake_tool_server(["tavily", "firecrawl"])
+    try:
+        async with Client(FastMCPTransport(server)) as mcp_client:
+            result = await mcp_client.call_tool(
+                "web_fetch",
+                {"url": "https://example.test/article"},
+            )
+    finally:
+        await client.aclose()
+
+    assert result.is_error is False
+    assert result.data.status == "unavailable"
+    assert result.data.url == "https://example.test/article"
+    assert result.data.content == ""
+    assert result.data.providers_attempted == ["tavily", "firecrawl"]
+    assert [failure.provider for failure in result.data.providers_failed] == [
+        "firecrawl",
+        "tavily",
+    ]
+    assert result.data.providers_failed[1].error_type == "API_ERROR"
+    assert result.data.message.startswith("All providers failed")
+
+
+async def test_web_fetch_tool_returns_not_found_without_tool_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def fake_run_fetch_race(
+        dispatcher: _FakeDispatcher,
+        url: str,
+        *,
+        provider: str | None = None,
+        skip_providers: Iterable[str] = (),
+    ) -> FetchRaceResult:
+        raise ProviderError(
+            ErrorType.NOT_FOUND,
+            "No provider returned content; reported not found",
+            "waterfall",
+            details=FetchExhaustionDetails(
+                providers_attempted=("tavily",),
+                providers_failed=(
+                    ProviderAttemptFailure(
+                        "tavily",
+                        "Tavily extraction failed: 404 page not found",
+                        4,
+                        ErrorType.NOT_FOUND,
+                    ),
+                ),
+            ),
         )
 
     monkeypatch.setattr(fetch_module, "run_fetch_race", fake_run_fetch_race)
     server, client = _fake_tool_server(["tavily"])
     try:
         async with Client(FastMCPTransport(server)) as mcp_client:
-            with pytest.raises(ToolError, match="All providers failed"):
-                await mcp_client.call_tool(
-                    "web_fetch",
-                    {"url": "https://example.test/article"},
-                )
+            result = await mcp_client.call_tool(
+                "web_fetch",
+                {"url": "https://example.test/missing"},
+            )
     finally:
         await client.aclose()
+
+    assert result.is_error is False
+    assert result.data.status == "not_found"
+    assert result.data.providers_failed[0].error_type == "NOT_FOUND"
+
+
+async def test_web_fetch_tool_handles_terminal_error_without_details(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def fake_run_fetch_race(
+        dispatcher: _FakeDispatcher,
+        url: str,
+        *,
+        provider: str | None = None,
+        skip_providers: Iterable[str] = (),
+    ) -> FetchRaceResult:
+        raise ProviderError(
+            ErrorType.PROVIDER_ERROR,
+            f"Provider failed for {url}",
+            "waterfall",
+        )
+
+    monkeypatch.setattr(fetch_module, "run_fetch_race", fake_run_fetch_race)
+    server, client = _fake_tool_server(["tavily"])
+    try:
+        async with Client(FastMCPTransport(server)) as mcp_client:
+            result = await mcp_client.call_tool(
+                "web_fetch",
+                {"url": "https://example.test/article"},
+            )
+    finally:
+        await client.aclose()
+
+    assert result.is_error is False
+    assert result.data.status == "unavailable"
+    assert result.data.providers_attempted == []
+    assert result.data.providers_failed == []
+    assert result.data.message == (
+        "Provider failed for https://example.test/article"
+    )
 
 
 async def test_web_fetch_tool_logs_url_without_content(

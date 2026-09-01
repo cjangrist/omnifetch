@@ -20,7 +20,9 @@ _TOOL_DESCRIPTION = (
     "object. Defaults to greeting 'World'."
 )
 _TOOL_ANNOTATIONS = ToolAnnotations(
-    readOnlyHint=True, idempotentHint=True, openWorldHint=False
+    read_only_hint=True,
+    idempotent_hint=True,
+    open_world_hint=False,
 )
 
 
