@@ -79,12 +79,16 @@ class FastcrwFetchProvider(FetchProvider):
     timeout_ms = _TIMEOUT_MS
     required_secrets = (_API_KEY_ENV_NAME,)
 
-    async def fetch_url(self, url: str) -> FetchResult:
-        """Fetch ``url`` through fastCRW and return normalized markdown."""
-        api_key = validate_api_key(
+    def _api_key(self) -> str:
+        """Return the credential for the hosted endpoint."""
+        return validate_api_key(
             self._secrets.get(_API_KEY_ENV_NAME),
             self.name,
         )
+
+    async def fetch_url(self, url: str) -> FetchResult:
+        """Fetch ``url`` through fastCRW and return normalized markdown."""
+        api_key = self._api_key()
         try:
             data = await http_json(
                 self._client,

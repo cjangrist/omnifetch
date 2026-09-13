@@ -11,6 +11,7 @@ import pytest
 import respx
 
 import omnifetch.fetch.providers.fastcrw as fastcrw_module
+import omnifetch.fetch.providers.fastcrw_selfhosted as selfhosted_module
 import omnifetch.fetch.providers.firecrawl as firecrawl_module
 import omnifetch.fetch.providers.tavily as tavily_module
 from omnifetch.fetch.engine.race import run_fetch_race
@@ -22,6 +23,9 @@ from omnifetch.fetch.providers import (
 from omnifetch.fetch.providers.fastcrw import (
     _DEFINITELY_MISSING_STATUSES,
     FastcrwFetchProvider,
+)
+from omnifetch.fetch.providers.fastcrw_selfhosted import (
+    SelfHostedFastcrwFetchProvider,
 )
 from omnifetch.fetch.shared.config import ProviderSecrets
 from omnifetch.fetch.shared.types import ErrorType, FetchResult, ProviderError
@@ -374,3 +378,82 @@ async def test_fastcrw_runs_after_tavily_and_before_firecrawl(
     assert [failure.provider for failure in result.providers_failed] == [
         "tavily"
     ]
+
+
+@pytest.mark.parametrize("credential", ["self-secret", " self-secret ,other"])
+async def test_selfhosted_uses_own_endpoint_and_first_key(
+    credential: str,
+) -> None:
+    with respx.mock as router:
+        route = router.post("https://crw.angrist.net/v1/scrape").respond(
+            json={"success": True, "data": {"markdown": "# Document"}}
+        )
+        async with httpx.AsyncClient() as client:
+            provider = SelfHostedFastcrwFetchProvider(
+                ProviderSecrets({"CRW_AUTH__API_KEYS": credential}), client
+            )
+            result = await provider.fetch_url("https://example.test/file.pdf")
+    assert (
+        route.calls[0].request.headers["Authorization"] == "Bearer self-secret"
+    )
+    assert _json_request(route.calls[0].request)["url"] == (
+        "https://example.test/file.pdf"
+    )
+    assert result.source_provider == "fastcrw_selfhosted"
+    assert result.content == "# Document"
+
+
+@pytest.mark.parametrize("credential", ["", " ", ",other"])
+async def test_selfhosted_rejects_missing_first_key(credential: str) -> None:
+    async with httpx.AsyncClient() as client:
+        provider = SelfHostedFastcrwFetchProvider(
+            ProviderSecrets({"CRW_AUTH__API_KEYS": credential}), client
+        )
+        with pytest.raises(ProviderError, match="API key"):
+            await provider.fetch_url(_ARTICLE_URL)
+
+
+@pytest.mark.parametrize("selfhosted_success", [True, False])
+async def test_selfhosted_precedes_tavily_and_fails_over(
+    monkeypatch: pytest.MonkeyPatch, selfhosted_success: bool
+) -> None:
+    monkeypatch.setattr(base, "_REGISTRY", {})
+    importlib.reload(fastcrw_module)
+    importlib.reload(selfhosted_module)
+    importlib.reload(tavily_module)
+    content = "# Article\n\n" + "Useful page content. " * 30
+    with respx.mock(assert_all_called=False) as router:
+        router.post("https://crw.angrist.net/v1/scrape").respond(
+            json={"success": selfhosted_success, "data": {"markdown": content}}
+        )
+        tavily = router.post("https://api.tavily.com/extract").respond(
+            json={"results": [{"url": _ARTICLE_URL, "raw_content": content}]}
+        )
+        async with httpx.AsyncClient() as client:
+            unified = UnifiedFetchProvider(
+                ProviderSecrets(
+                    {
+                        "CRW_AUTH__API_KEYS": "self-secret",
+                        "TAVILY_API_KEY": "tavily-secret",
+                    }
+                ),
+                client,
+            )
+            result = await run_fetch_race(unified, _ARTICLE_URL)
+    expected = (
+        ("fastcrw_selfhosted",)
+        if selfhosted_success
+        else ("fastcrw_selfhosted", "tavily")
+    )
+    assert result.providers_attempted == expected
+    assert result.provider_used == expected[-1]
+    assert tavily.called is not selfhosted_success
+
+
+def test_selfhosted_requires_its_own_secret() -> None:
+    assert not SelfHostedFastcrwFetchProvider.is_available(
+        ProviderSecrets({"CRW_API_KEY": "hosted-secret"})
+    )
+    assert SelfHostedFastcrwFetchProvider.is_available(
+        ProviderSecrets({"CRW_AUTH__API_KEYS": "self-secret"})
+    )
