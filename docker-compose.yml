@@ -7,6 +7,7 @@ services:
     volumes:
       - omnifetch-cache:/app/.cache/omnifetch
     environment:
+      - CRW_AUTH__API_KEYS
       - TAVILY_API_KEY
       - FIRECRAWL_API_KEY
       - OMNIFETCH_CACHE_BACKEND

@@ -15,6 +15,7 @@ _PROVIDER_TEST_ROOT = Path(__file__).resolve().parent / "providers"
 _CONFTEST_PATH = _PROJECT_ROOT / "tests" / "conftest.py"
 _INFRA_MODULE_NAMES = frozenset({"__init__", "base", "kimi_proxy", "registry"})
 _SHARED_PROVIDER_TEST_MODULES = {
+    "fastcrw_selfhosted": "test_fastcrw.py",
     "firecrawl": "test_tavily_firecrawl.py",
     "tavily": "test_tavily_firecrawl.py",
 }

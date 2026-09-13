@@ -32,6 +32,7 @@ class FetchFailureParityCase:
 
 
 _CANONICAL_WATERFALL_PROVIDER_ORDER = (
+    "fastcrw_selfhosted",
     "tavily",
     # Divergence from the TS ledger: fastCRW postdates the port and is placed
     # ahead of Firecrawl deliberately, since it answers the same scrape shape

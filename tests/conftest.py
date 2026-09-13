@@ -21,6 +21,7 @@ from omnifetch.server import build_server
 _PROVIDER_ENV_NAMES = (
     "TAVILY_API_KEY",
     "CRW_API_KEY",
+    "CRW_AUTH__API_KEYS",
     "FIRECRAWL_API_KEY",
     "JINA_API_KEY",
     "YOU_API_KEY",

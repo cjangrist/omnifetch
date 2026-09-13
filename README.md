@@ -208,6 +208,7 @@ Configure any subset; missing providers remain disabled.
 |---|---|---|
 | `TAVILY_API_KEY` | _(empty)_ | Tavily fetch |
 | `CRW_API_KEY` | _(empty)_ | fastCRW fetch |
+| `CRW_AUTH__API_KEYS` | _(empty)_ | Self-hosted FastCRW at `https://crw.angrist.net`; first comma-separated key is used |
 | `FIRECRAWL_API_KEY` | _(empty)_ | Firecrawl fetch |
 | `JINA_API_KEY` | _(empty)_ | Jina Reader |
 | `YOU_API_KEY` | _(empty)_ | You.com fetch |
@@ -239,6 +240,11 @@ Configure any subset; missing providers remain disabled.
 | `SUPADATA_API_KEY` | _(empty)_ | Supadata |
 | `GITHUB_API_KEY` | _(empty)_ | GitHub fetch |
 | `KIMI_API_KEY` | _(empty)_ | Kimi fetch |
+
+When configured, `fastcrw_selfhosted` is the first general fetch waterfall
+tier, before Tavily and hosted `fastcrw`. Domain-specific shortcuts still run
+first. Failed or unusable self-hosted responses continue through the existing
+waterfall. HTML and PDF URLs use the same `/v1/scrape` endpoint.
 
 ### Telemetry
 
