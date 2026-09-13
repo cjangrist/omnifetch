@@ -380,7 +380,10 @@ async def test_fastcrw_runs_after_tavily_and_before_firecrawl(
     ]
 
 
-@pytest.mark.parametrize("credential", ["self-secret", " self-secret ,other"])
+@pytest.mark.parametrize(
+    "credential",
+    ["self-secret", " self-secret ,other", '"self-secret,other"'],
+)
 async def test_selfhosted_uses_own_endpoint_and_first_key(
     credential: str,
 ) -> None:

@@ -16,7 +16,7 @@ class SelfHostedFastcrwFetchProvider(FastcrwFetchProvider):
 
     def _api_key(self) -> str:
         """Use the first key from FastCRW's comma-separated allowlist."""
-        configured = self._secrets.get(self.required_secrets[0], "")
-        return validate_api_key(
-            (configured or "").split(",", 1)[0].strip(), self.name
+        configured = validate_api_key(
+            self._secrets.get(self.required_secrets[0]), self.name
         )
+        return validate_api_key(configured.split(",", 1)[0].strip(), self.name)
