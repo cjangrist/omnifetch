@@ -402,6 +402,12 @@ async def test_selfhosted_uses_own_endpoint_and_first_key(
     assert _json_request(route.calls[0].request)["url"] == (
         "https://example.test/file.pdf"
     )
+    assert _json_request(route.calls[0].request) == {
+        "url": "https://example.test/file.pdf",
+        "formats": ["markdown"],
+        "onlyMainContent": True,
+        "deadlineMs": 15_000,
+    }
     assert result.source_provider == "fastcrw_selfhosted"
     assert result.content == "# Document"
 
