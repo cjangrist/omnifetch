@@ -86,6 +86,14 @@ class FastcrwFetchProvider(FetchProvider):
             self.name,
         )
 
+    def _scrape_payload(self, url: str) -> dict[str, object]:
+        """Build the provider's documented scrape request."""
+        return {
+            "url": url,
+            "formats": ["markdown"],
+            "onlyMainContent": True,
+        }
+
     async def fetch_url(self, url: str) -> FetchResult:
         """Fetch ``url`` through fastCRW and return normalized markdown."""
         api_key = self._api_key()
@@ -97,11 +105,7 @@ class FastcrwFetchProvider(FetchProvider):
                 model=_FastcrwScrapeResponse,
                 method="POST",
                 headers={"Authorization": f"Bearer {api_key}"},
-                json={
-                    "url": url,
-                    "formats": ["markdown"],
-                    "onlyMainContent": True,
-                },
+                json=self._scrape_payload(url),
                 timeout_s=self.timeout_s,
             )
             metadata = data.data.metadata if data.data else None
