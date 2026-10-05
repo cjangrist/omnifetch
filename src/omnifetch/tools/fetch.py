@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import functools
 import hashlib
 import json
 import logging
@@ -27,6 +28,7 @@ from omnifetch.fetch.engine.skip import (
     parse_skip_providers,
     validate_skip_providers,
 )
+from omnifetch.fetch.shared.cancellation import cancel_task
 from omnifetch.fetch.shared.types import ErrorType, ProviderError
 from omnifetch.logging import get_logger
 from omnifetch.schemas import (
@@ -58,6 +60,7 @@ _TOOL_ANNOTATIONS = ToolAnnotations(
     idempotent_hint=True,
     open_world_hint=True,
 )
+_FETCHES_IN_FLIGHT: set[asyncio.Task[FetchResponse]] = set()
 
 
 def _parse_valid_skip_providers(
@@ -451,6 +454,41 @@ def _terminal_failure_response(
     )
 
 
+def _retire_fetch(task: asyncio.Task[FetchResponse]) -> None:
+    """Drop one finished fetch and observe how it ended."""
+    _FETCHES_IN_FLIGHT.discard(task)
+    if not task.cancelled():
+        task.exception()
+
+
+def _url_host(url: str) -> str:
+    """Return a URL's host for task names and logs, or a placeholder."""
+    try:
+        return urlsplit(url.strip()).hostname or "(no host)"
+    except ValueError:
+        return "(unparseable)"
+
+
+def _fetch_outcome(task: asyncio.Task[FetchResponse]) -> str:
+    """Name how one finished fetch ended, without its content."""
+    if task.cancelled():
+        return "cancelled"
+    error = task.exception()
+    return "returned" if error is None else type(error).__name__
+
+
+def _log_abandoned_fetch(
+    abandoned_at: float, task: asyncio.Task[FetchResponse]
+) -> None:
+    """Record how a fetch whose caller was cancelled finally ended."""
+    _LOGGER.info(
+        "Abandoned %s finished %.2fs after its caller was cancelled: %s",
+        task.get_name(),
+        asyncio.get_running_loop().time() - abandoned_at,
+        _fetch_outcome(task),
+    )
+
+
 async def execute_web_fetch(
     engine: Engine,
     url: str,
@@ -459,6 +497,52 @@ async def execute_web_fetch(
     skip_providers: str | list[str] | None = None,
 ) -> FetchResponse:
     """Return a cached success or fetch through the shared provider engine.
+
+    The fetch runs in its own task, and a cancelled caller cancels it exactly
+    once. MCP cancellation arrives through an AnyIO cancel scope, which
+    re-cancels the handler task on every event-loop iteration until it exits.
+    Awaited directly, each of those cancellations would be forwarded through
+    ``asyncio.gather`` into provider requests that are already closing their
+    connections, and a cancellation landing inside httpcore's AnyIO-shielded
+    close aborts it and strands an ACTIVE connection in the shared pool for
+    good. The cancelled fetch finishes unwinding on its own, and how it ended
+    is logged.
+    """
+    fetch = asyncio.create_task(
+        _execute_web_fetch(
+            engine,
+            url,
+            provider=provider,
+            skip_providers=skip_providers,
+        ),
+        name=f"web_fetch:{_url_host(url)}",
+    )
+    _FETCHES_IN_FLIGHT.add(fetch)
+    fetch.add_done_callback(_retire_fetch)
+    try:
+        return await asyncio.shield(fetch)
+    except asyncio.CancelledError:
+        _LOGGER.info(
+            "Caller of %s was cancelled; cancelling the fetch once",
+            fetch.get_name(),
+        )
+        cancel_task(fetch)
+        fetch.add_done_callback(
+            functools.partial(
+                _log_abandoned_fetch, asyncio.get_running_loop().time()
+            )
+        )
+        raise
+
+
+async def _execute_web_fetch(
+    engine: Engine,
+    url: str,
+    *,
+    provider: str | None,
+    skip_providers: str | list[str] | None,
+) -> FetchResponse:
+    """Serve one fetch from the cache or lead or join its provider race.
 
     Leadership is confirmed with a second cache read before any provider is
     paid. The first read awaits the backend, and a leader that finishes during
