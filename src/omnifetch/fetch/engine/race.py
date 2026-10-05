@@ -16,6 +16,7 @@ from omnifetch.fetch.engine.waterfall import (
     Step,
     WATERFALL_STEPS,
 )
+from omnifetch.fetch.shared.cancellation import cancel_task
 from omnifetch.fetch.shared.types import ErrorType, FetchResult, ProviderError
 
 _NOT_FOUND_PROVIDER_QUORUM = 2
@@ -295,7 +296,8 @@ async def _run_parallel(
     ctx.attempted.extend(available)
     tasks = {
         asyncio.create_task(
-            _fetch_provider(ctx, provider, record_attempt=False)
+            _fetch_provider(ctx, provider, record_attempt=False),
+            name=f"fetch-provider:{provider}",
         ): provider
         for provider in available
     }
@@ -304,7 +306,7 @@ async def _run_parallel(
     finally:
         pending = [task for task in tasks if not task.done()]
         for task in pending:
-            task.cancel()
+            cancel_task(task)
         await asyncio.gather(*pending, return_exceptions=True)
 
 
