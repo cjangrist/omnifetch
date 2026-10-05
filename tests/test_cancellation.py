@@ -10,6 +10,7 @@ at which point the recheck in ``cancellation.py`` and the canary are deleted.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 from collections.abc import Callable
 
@@ -150,13 +151,11 @@ async def _sweep_offsets(
     listener = await asyncio.start_server(_accept, "127.0.0.1", 0)
     port = listener.sockets[0].getsockname()[1]
     outcomes: list[bool] = []
-    try:
+    with contextlib.closing(listener):
         for offset in _OFFSETS:
             outcomes.append(await _cancelled_at_offset(port, offset, cancel))
             if stop_at_first_lost and not outcomes[-1]:
                 break
-    finally:
-        listener.close()
     return outcomes
 
 

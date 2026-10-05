@@ -12,6 +12,7 @@ strands a connection fails it.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 
 import httpx
@@ -31,7 +32,7 @@ async def _serve(
     reader: asyncio.StreamReader,
     writer: asyncio.StreamWriter,
 ) -> None:
-    try:
+    with contextlib.closing(writer):
         headers = await reader.readuntil(b"\r\n\r\n")
         if b" /fast " in headers:
             writer.write(
@@ -41,8 +42,6 @@ async def _serve(
             await writer.drain()
             return
         await reader.read()
-    finally:
-        writer.close()
 
 
 class _HangingDispatcher:
