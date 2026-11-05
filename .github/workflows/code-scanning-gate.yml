@@ -27,7 +27,7 @@ jobs:
       security-events: read # read code scanning alerts
     steps:
       - name: Harden the runner (deny-by-default egress)
-        uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920 # v2
+        uses: step-security/harden-runner@46b06cea07f9e64621fdf066ba77ac6915163d43 # v2
         with:
           egress-policy: block
           disable-sudo: true
