@@ -93,9 +93,9 @@ async def _poll_job(request: _SupadataRequest, job_id: str) -> str:
 
 
 async def _fetch_transcript(request: _SupadataRequest, url: str) -> str:
-    """Fetch or poll a Supadata transcript for ``url``."""
+    """Fetch or poll a native Supadata transcript for ``url``."""
     query = urlencode(
-        {"url": url, "text": "true", "mode": "auto", "lang": "en"}
+        {"url": url, "text": "true", "mode": "native", "lang": "en"}
     )
     raw, status = await http_raw(
         request.client,
