@@ -34,7 +34,7 @@ async def test_supadata_fetches_transcript() -> None:
             assert request.headers["x-api-key"] == "supadata-secret"
             assert request.url.params["url"] == _YOUTUBE_URL
             assert request.url.params["text"] == "true"
-            assert request.url.params["mode"] == "auto"
+            assert request.url.params["mode"] == "native"
             assert request.url.params["lang"] == "en"
             return httpx.Response(
                 200,
@@ -123,6 +123,31 @@ async def test_supadata_rejects_failed_async_job(
 async def test_supadata_rejects_empty_immediate_transcript() -> None:
     with respx.mock(assert_all_called=True) as router:
         router.get(_TRANSCRIPT_URL).respond(200, json={"content": ""})
+        async with httpx.AsyncClient() as client:
+            provider = SupadataFetchProvider(
+                ProviderSecrets({"SUPADATA_API_KEY": "supadata-secret"}),
+                client,
+            )
+            with pytest.raises(ProviderError) as error_info:
+                await provider.fetch_url(_YOUTUBE_URL)
+
+    assert error_info.value.error_type is ErrorType.API_ERROR
+    assert str(error_info.value) == (
+        "Failed to fetch YouTube transcript: "
+        "Supadata returned no transcript for this video"
+    )
+
+
+async def test_supadata_rejects_unavailable_native_transcript() -> None:
+    with respx.mock(assert_all_called=True) as router:
+        router.get(_TRANSCRIPT_URL).respond(
+            206,
+            json={
+                "error": "transcript-unavailable",
+                "message": "Transcript Unavailable",
+                "details": "No transcript is available for this video",
+            },
+        )
         async with httpx.AsyncClient() as client:
             provider = SupadataFetchProvider(
                 ProviderSecrets({"SUPADATA_API_KEY": "supadata-secret"}),
