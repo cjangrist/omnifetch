@@ -15,7 +15,7 @@ jobs:
       pull-requests: write # post the dependency summary comment
     steps:
       - name: Harden the runner (deny-by-default egress)
-        uses: step-security/harden-runner@46b06cea07f9e64621fdf066ba77ac6915163d43 # v2
+        uses: step-security/harden-runner@aebdcf6156ab6691adf63218240e476564a1ed4c # v2
         with:
           egress-policy: block
           disable-sudo: true
@@ -26,7 +26,7 @@ jobs:
             api.securityscorecards.dev:443
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - name: Review dependency changes
-        uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294 # v4
+        uses: actions/dependency-review-action@bbc44d14a204704ccc493733616cd1e93a0321ec # v4
         with:
           fail-on-severity: high
           comment-summary-in-pr: on-failure
